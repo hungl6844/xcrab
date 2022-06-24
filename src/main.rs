@@ -85,7 +85,7 @@ async fn main() -> Result<(), XcrabError> {
                 ev.window.configure_async(&mut conn, params).await?;
             }
             Event::UnmapNotify(ev) => {
-                if ev.event == root {
+                if ev.event != root {
                     if let Some(parent) = clients.get(&ev.window) {
                         parent.unmap_async(&mut conn).await?;
 
