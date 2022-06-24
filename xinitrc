@@ -1,7 +1,8 @@
 #!/bin/sh
 
-target/debug/xcrab &
+xclock &
+xterm &
 
-sleep 0.15;
+sleep 2;
 
-xclock
+target/debug/xcrab

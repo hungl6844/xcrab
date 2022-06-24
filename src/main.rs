@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 
 use breadx::{
-    prelude::{AsyncDisplayXprotoExt, SetMode},
+    prelude::{AsyncDisplayXprotoExt, SetMode, MapState},
     traits::DisplayBase,
-    AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters, Event,
-    EventMask, Window, AsyncDisplay,
+    AsyncDisplay, AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters,
+    Event, EventMask, Window,
 };
 
 #[derive(Debug)] // TODO: actually print good errors on failure
@@ -28,17 +28,38 @@ async fn main() -> Result<(), XcrabError> {
     let root = conn.default_root();
 
     // listen for substructure redirects to intercept events like window creation
-    root.set_event_mask_async(&mut conn, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY)
-        .await?;
+    root.set_event_mask_async(
+        &mut conn,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+    )
+    .await?;
 
     let mut clients = HashMap::new();
 
+    conn.grab_server_async().await?;
+
+    let top_level_windows = root.query_tree_immediate_async(&mut conn).await?.children;
+
+    for &win in top_level_windows.iter() {
+        let attrs = win
+            .window_attributes_immediate_async(&mut conn)
+            .await?;
+
+        if !attrs.override_redirect && attrs.map_state == MapState::Viewable {
+            clients.insert(win, manage_window(&mut conn, win).await?);
+        }
+    }
+
+    conn.ungrab_server_async().await?;
+    
     loop {
         let ev = conn.wait_for_event_async().await?;
 
         match ev {
             Event::MapRequest(ev) => {
-                clients.insert(ev.window, manage_window(&mut conn, ev.window).await?);
+                let win = ev.window;
+
+                clients.insert(win, manage_window(&mut conn, win).await?);
             }
             Event::ConfigureRequest(ev) => {
                 // cope from `ev` to `params`
@@ -62,27 +83,34 @@ async fn main() -> Result<(), XcrabError> {
 
                 // forward the request
                 ev.window.configure_async(&mut conn, params).await?;
-            },
+            }
             Event::UnmapNotify(ev) => {
-                if let Some(parent) = clients.get(&ev.window) {
-                    parent.unmap_async(&mut conn).await?;
+                if ev.event == root {
+                    if let Some(parent) = clients.get(&ev.window) {
+                        parent.unmap_async(&mut conn).await?;
 
-                    ev.window.reparent_async(&mut conn, root, 0, 0).await?;
+                        ev.window.reparent_async(&mut conn, root, 0, 0).await?;
 
-                    // no longer related to us, remove from save set
-                    ev.window.change_save_set_async(&mut conn, SetMode::Delete).await?;
+                        // no longer related to us, remove from save set
+                        ev.window
+                            .change_save_set_async(&mut conn, SetMode::Delete)
+                            .await?;
 
-                    parent.free_async(&mut conn).await?;
+                        parent.free_async(&mut conn).await?;
 
-                    clients.remove(&ev.window);
+                        clients.remove(&ev.window);
+                    }
                 }
-            },
+            }
             _ => {}
         }
     }
 }
 
-async fn manage_window<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Result<Window, XcrabError> {
+async fn manage_window<Dpy: AsyncDisplay + ?Sized>(
+    conn: &mut Dpy,
+    win: Window,
+) -> Result<Window, XcrabError> {
     // the client wishes for their window to be displayed. we must create a new
     // window with a titlebar and reparent the old window to this new window.
 
@@ -103,11 +131,13 @@ async fn manage_window<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) 
         .await?;
 
     parent
-        .set_event_mask_async(conn, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY)
+        .set_event_mask_async(
+            conn,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        )
         .await?;
 
-    win.change_save_set_async(conn, SetMode::Insert)
-        .await?;
+    win.change_save_set_async(conn, SetMode::Insert).await?;
 
     // tell the window what size we made it
     win.configure_async(
