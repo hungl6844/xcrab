@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic)]
 
 use std::collections::HashMap;
+//use std::sync::Rc;
 
 use breadx::{
     prelude::{AsyncDisplayXprotoExt, MapState, SetMode},
@@ -9,8 +10,15 @@ use breadx::{
     Event, EventMask, Window,
 };
 
+mod x11;
+
+use x11::client::XcrabClient;
+
+const BORDER_WIDTH: u16 = 5;
+const GAP_WIDTH: u16 = 10;
+
 #[derive(Debug)] // TODO: actually print good errors on failure
-enum XcrabError {
+pub enum XcrabError {
     Bread(BreadError),
 }
 
@@ -43,8 +51,13 @@ async fn main() -> Result<(), XcrabError> {
     for &win in top_level_windows.iter() {
         let attrs = win.window_attributes_immediate_async(&mut conn).await?;
 
+        println!("a");
         if !attrs.override_redirect && attrs.map_state == MapState::Viewable {
-            clients.insert(win, manage_window(&mut conn, win).await?);
+            clients.insert(
+                win,
+                XcrabClient::new(win, &mut conn, clients.len() + 1).await?,
+            );
+            x11::client::calculate_geometry(&mut clients, &mut conn).await?;
         }
     }
 
@@ -57,7 +70,11 @@ async fn main() -> Result<(), XcrabError> {
             Event::MapRequest(ev) => {
                 let win = ev.window;
 
-                clients.insert(win, manage_window(&mut conn, win).await?);
+                clients.insert(
+                    win,
+                    XcrabClient::new(win, &mut conn, clients.len() + 1).await?,
+                );
+                x11::client::calculate_geometry(&mut clients, &mut conn).await?;
             }
             Event::ConfigureRequest(ev) => {
                 // cope from `ev` to `params`
@@ -85,7 +102,7 @@ async fn main() -> Result<(), XcrabError> {
             Event::UnmapNotify(ev) => {
                 if ev.event != root {
                     if let Some(parent) = clients.get(&ev.window) {
-                        parent.unmap_async(&mut conn).await?;
+                        parent.parent.unmap_async(&mut conn).await?;
 
                         ev.window.reparent_async(&mut conn, root, 0, 0).await?;
 
@@ -94,7 +111,7 @@ async fn main() -> Result<(), XcrabError> {
                             .change_save_set_async(&mut conn, SetMode::Delete)
                             .await?;
 
-                        parent.free_async(&mut conn).await?;
+                        parent.parent.free_async(&mut conn).await?;
 
                         clients.remove(&ev.window);
                     }
