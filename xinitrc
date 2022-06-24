@@ -1,3 +1,4 @@
-target/debug/xcrab
-# target/release/xcrab
+xclock &
 
+exec target/debug/xcrab
+# exec target/release/xcrab
