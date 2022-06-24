@@ -1,7 +1,8 @@
 use breadx::{
     prelude::{AsyncDisplayXprotoExt, SetMode},
     traits::DisplayBase,
-    AsyncDisplayConnection, AsyncDisplayExt, BreadError, Event, EventMask, WindowClass,
+    AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters, Event,
+    EventMask, WindowClass,
 };
 
 #[derive(Debug)] // TODO: actually print good errors on failure
@@ -40,13 +41,19 @@ async fn main() -> Result<(), XcrabError> {
 
                 let geometry = win.geometry_immediate_async(&mut conn).await?;
 
+                // TODO: tiling window manager logic
+                let new_x = geometry.x;
+                let new_y = geometry.y;
+                let new_width = geometry.width;
+                let new_height = geometry.height;
+
                 let parent = conn
                     .create_simple_window_async(
                         root,
-                        geometry.x,
-                        geometry.y,
-                        geometry.width,
-                        geometry.height,
+                        new_x,
+                        new_y,
+                        new_width,
+                        new_height,
                         3,
                         0xff0000,
                         0x000000,
@@ -60,10 +67,25 @@ async fn main() -> Result<(), XcrabError> {
                 win.change_save_set_async(&mut conn, SetMode::Insert)
                     .await?;
 
+                // tell the window what size we made it
+                win.configure_async(
+                    &mut conn,
+                    ConfigureWindowParameters {
+                        width: Some(new_width.into()),
+                        height: Some(new_height.into()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+
                 win.reparent_async(&mut conn, parent, 0, 0).await?;
 
                 parent.map_async(&mut conn).await?;
+
                 win.map_async(&mut conn).await?;
+            }
+            Event::ConfigureRequest(ev) => {
+                
             }
             _ => {}
         }
