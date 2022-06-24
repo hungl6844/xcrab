@@ -6,4 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-breadx = "2.0.0"
+breadx = { version = "2.0.0", features = ["async"] }
+tokio = { version = "1.19.2", features = ["full"] }
