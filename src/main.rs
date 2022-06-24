@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use breadx::{
-    prelude::{AsyncDisplayXprotoExt, SetMode, MapState},
+    prelude::{AsyncDisplayXprotoExt, MapState, SetMode},
     traits::DisplayBase,
     AsyncDisplay, AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters,
     Event, EventMask, Window,
@@ -41,9 +41,7 @@ async fn main() -> Result<(), XcrabError> {
     let top_level_windows = root.query_tree_immediate_async(&mut conn).await?.children;
 
     for &win in top_level_windows.iter() {
-        let attrs = win
-            .window_attributes_immediate_async(&mut conn)
-            .await?;
+        let attrs = win.window_attributes_immediate_async(&mut conn).await?;
 
         if !attrs.override_redirect && attrs.map_state == MapState::Viewable {
             clients.insert(win, manage_window(&mut conn, win).await?);
@@ -51,7 +49,7 @@ async fn main() -> Result<(), XcrabError> {
     }
 
     conn.ungrab_server_async().await?;
-    
+
     loop {
         let ev = conn.wait_for_event_async().await?;
 
