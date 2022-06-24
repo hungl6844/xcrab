@@ -63,6 +63,7 @@ async fn main() -> Result<(), XcrabError> {
                 win.reparent_async(&mut conn, parent, 0, 0).await?;
 
                 parent.map_async(&mut conn).await?;
+                win.map_async(&mut conn).await?;
             }
             _ => {}
         }
