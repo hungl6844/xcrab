@@ -1,4 +1,5 @@
-exec target/debug/xcrab &
-# exec target/release/xcrab &
+target/debug/xcrab &
 
-sleep 1 && xclock
+sleep 0.15;
+
+xclock

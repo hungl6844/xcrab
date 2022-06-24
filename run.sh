@@ -1,5 +1,8 @@
 #!/bin/sh 
 
+cargo build;
+
+XEPHYR=$(which Xephyr | cut -f2 -d' ')
 xinit ./xinitrc -- \
     "$(which Xephyr)" \
         :100 \
