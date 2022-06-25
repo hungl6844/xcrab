@@ -2,7 +2,7 @@
 
 A window manager written in [Rust](https://rust-lang.org).
 
-[These posts](https://jichu4n.com/tag/window-manager/) by Chuan Ji were an immense while designing this WM.
+[These posts](https://jichu4n.com/tag/window-manager/) by Chuan Ji were an immense help while designing this WM.
 
 ## Contributing
 
