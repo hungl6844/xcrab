@@ -1,7 +1,6 @@
-use breadx::prelude::{AsyncDisplayXprotoExt, Geometry, SetMode};
+use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
 use breadx::{AsyncDisplay, ConfigureWindowParameters, Window};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub struct XcrabClient {
     geometry: XcrabGeometry,
@@ -10,7 +9,7 @@ pub struct XcrabClient {
 }
 
 #[derive(Debug)]
-struct XcrabGeometry {
+pub struct XcrabGeometry {
     x: i16,
     y: i16,
     width: u16,
@@ -88,7 +87,7 @@ pub async fn calculate_geometry<Dpy: AsyncDisplay + ?Sized>(
                     y: Some(xcrab_client.geometry.y.into()),
                     width: Some(xcrab_client.geometry.width.into()),
                     height: Some(xcrab_client.geometry.height.into()),
-                    ..Default::default()
+                    ..breadx::ConfigureWindowParameters::default()
                 },
             )
             .await?;
@@ -99,7 +98,7 @@ pub async fn calculate_geometry<Dpy: AsyncDisplay + ?Sized>(
                 ConfigureWindowParameters {
                     width: Some(xcrab_client.geometry.width.into()),
                     height: Some(xcrab_client.geometry.height.into()),
-                    ..Default::default()
+                    ..breadx::ConfigureWindowParameters::default()
                 },
             )
             .await?;

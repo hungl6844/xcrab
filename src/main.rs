@@ -1,4 +1,9 @@
 #![warn(clippy::pedantic)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 
 use std::collections::HashMap;
 //use std::sync::Rc;
@@ -160,7 +165,7 @@ async fn manage_window<Dpy: AsyncDisplay + ?Sized>(
         ConfigureWindowParameters {
             width: Some(new_width.into()),
             height: Some(new_height.into()),
-            ..Default::default()
+            ..breadx::ConfigureWindowParameters::default()
         },
     )
     .await?;
