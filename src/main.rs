@@ -6,7 +6,7 @@
 )]
 
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use breadx::{
     prelude::{AsyncDisplayXprotoExt, MapState, SetMode},
@@ -23,7 +23,6 @@ const BORDER_WIDTH: u16 = 5;
 const GAP_WIDTH: u16 = 10;
 
 #[non_exhaustive]
-#[derive(Debug)]
 pub enum XcrabError {
     Bread(BreadError),
 }
@@ -34,13 +33,18 @@ impl From<BreadError> for XcrabError {
     }
 }
 
-// TODO: actually use this impl somewhere
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bread(be) => Display::fmt(&be, f)?,
         };
         Ok(())
+    }
+}
+
+impl Debug for XcrabError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
