@@ -74,7 +74,7 @@ impl Debug for XcrabError {
 
 #[tokio::main]
 async fn main() -> Result<(), XcrabError> {
-    let xcrab_conf = config::load_file().unwrap();
+    let xcrab_conf = config::load_file().unwrap_or_default();
     dbg!(xcrab_conf);
 
     // connect to the x server
