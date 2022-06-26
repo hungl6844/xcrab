@@ -3,6 +3,6 @@
 xclock &
 xterm &
 
-sleep 2;
+sleep 0.5;
 
 target/debug/xcrab

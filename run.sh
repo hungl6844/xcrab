@@ -1,6 +1,6 @@
 #!/bin/sh 
 
-cargo build;
+cargo build || exit;
 
 XEPHYR=$(which Xephyr | cut -f2 -d' ')
 xinit ./xinitrc -- \

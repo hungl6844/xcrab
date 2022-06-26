@@ -7,30 +7,34 @@ use serde::{Deserialize, Serialize};
 pub struct XcrabConfig {
     border_color: Option<u32>,
     border_size: Option<u16>,
-    gap_width: Option<u16>,
+    gap_size: Option<u16>,
 }
+
+const DEFAULT_BORDER_COLOR: u32 = 0xff_00_00; // red
+const DEFAULT_BORDER_SIZE: u16 = 5;
+const DEFAULT_GAP_SIZE: u16 = 10;
 
 impl Default for XcrabConfig {
     fn default() -> Self {
         Self {
-            border_color: Some(0xff_00_00), // red
-            border_size: Some(5),
-            gap_width: Some(10),
+            border_color: Some(DEFAULT_BORDER_COLOR),
+            border_size: Some(DEFAULT_BORDER_SIZE),
+            gap_size: Some(DEFAULT_GAP_SIZE),
         }
     }
 }
 
 impl XcrabConfig {
     pub fn border_color(&self) -> u32 {
-        self.border_color.unwrap_or(0xff_00_00)
+        self.border_color.unwrap_or(DEFAULT_BORDER_COLOR)
     }
 
     pub fn border_size(&self) -> u16 {
-        self.border_size.unwrap_or(5)
+        self.border_size.unwrap_or(DEFAULT_BORDER_SIZE)
     }
 
-    pub fn gap_width(&self) -> u16 {
-        self.gap_width.unwrap_or(10)
+    pub fn gap_size(&self) -> u16 {
+        self.gap_size.unwrap_or(DEFAULT_GAP_SIZE)
     }
 }
 
