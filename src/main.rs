@@ -27,6 +27,7 @@ pub enum XcrabError {
     Bread(BreadError),
     Io(std::io::Error),
     Toml(toml::de::Error),
+    Var(std::env::VarError),
 }
 
 impl From<BreadError> for XcrabError {
@@ -47,12 +48,19 @@ impl From<toml::de::Error> for XcrabError {
     }
 }
 
+impl From<std::env::VarError> for XcrabError {
+    fn from(v: std::env::VarError) -> Self {
+        Self::Var(v)
+    }
+}
+
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bread(be) => Display::fmt(&be, f)?,
             Self::Io(ie) => Display::fmt(&ie, f)?,
             Self::Toml(te) => Display::fmt(&te, f)?,
+            Self::Var(ve) => Display::fmt(&ve, f)?,
         };
         Ok(())
     }

@@ -34,7 +34,9 @@ impl XcrabConfig {
 }
 
 pub fn load_file() -> Result<XcrabConfig, crate::XcrabError> {
-    let contents = std::fs::read_to_string("~/.config/xcrab/config.toml")?;
+    let home_dir = std::env::var("HOME")?;
+
+    let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))?;
 
     let config: XcrabConfig = toml::from_str(&contents)?;
 
