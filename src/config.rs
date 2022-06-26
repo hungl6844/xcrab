@@ -1,11 +1,12 @@
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+#![allow(dead_code)]
 
-#[derive(Debug, Serialize, Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct XcrabConfig {
-    pub border_color: Option<u32>,
-    pub border_size: Option<u16>,
-    pub gap_width: Option<u16>,
+    border_color: Option<u32>,
+    border_size: Option<u16>,
+    gap_width: Option<u16>,
 }
 
 impl Default for XcrabConfig {
@@ -18,11 +19,21 @@ impl Default for XcrabConfig {
     }
 }
 
-pub fn load_file() -> Arc<XcrabConfig> {
-    Arc::new(load_file_inner().unwrap_or_default())
+impl XcrabConfig {
+    pub fn border_color(&self) -> u32 {
+        self.border_color.unwrap_or(0xff_00_00)
+    }
+
+    pub fn border_size(&self) -> u16 {
+        self.border_size.unwrap_or(5)
+    }
+
+    pub fn gap_width(&self) -> u16 {
+        self.gap_width.unwrap_or(10)
+    }
 }
 
-fn load_file_inner() -> Result<XcrabConfig, crate::XcrabError> {
+pub fn load_file() -> Result<XcrabConfig, crate::XcrabError> {
     let contents = std::fs::read_to_string("~/.config/xcrab/config.toml")?;
 
     let config: XcrabConfig = toml::from_str(&contents)?;

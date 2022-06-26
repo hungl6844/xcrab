@@ -1,3 +1,4 @@
+use crate::config::XcrabConfig;
 use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
 use breadx::{AsyncDisplay, ConfigureWindowParameters, Window};
 use std::collections::HashMap;
@@ -21,6 +22,7 @@ impl XcrabClient {
         window: Window,
         dpy: &mut Dpy,
         position: usize,
+        conf: XcrabConfig,
     ) -> Result<Self, crate::XcrabError> {
         let geometry = window.geometry_immediate_async(dpy).await?;
 
@@ -32,8 +34,8 @@ impl XcrabClient {
                 geometry.y,
                 geometry.width,
                 geometry.height,
-                crate::BORDER_WIDTH,
-                0xff_00_00,
+                conf.border_size(),
+                conf.border_color(),
                 0x00_00_00,
             )
             .await?;
@@ -58,6 +60,7 @@ impl XcrabClient {
 pub async fn calculate_geometry<Dpy: AsyncDisplay + ?Sized>(
     windows: &mut HashMap<Window, XcrabClient>,
     dpy: &mut Dpy,
+    conf: XcrabConfig,
 ) -> Result<(), crate::XcrabError> {
     let root = dpy.default_root();
     let root_geometry = root.geometry_immediate_async(dpy).await?;
@@ -65,7 +68,7 @@ pub async fn calculate_geometry<Dpy: AsyncDisplay + ?Sized>(
 
     // let gap_width = crate::GAP_WIDTH as usize * (window_count + 1);
     let width_per_window = root_geometry.width as usize / window_count;
-    let border_width = crate::BORDER_WIDTH as usize * 2;
+    let border_width = conf.border_size() as usize * 2;
 
     for (window, xcrab_client) in windows {
         let xcrab_geometry = XcrabGeometry {

@@ -19,8 +19,8 @@ mod config;
 mod x11;
 use x11::client::XcrabClient;
 
-const BORDER_WIDTH: u16 = 5;
-const GAP_WIDTH: u16 = 10;
+// const BORDER_WIDTH: u16 = 5;
+// const GAP_WIDTH: u16 = 10;
 
 #[non_exhaustive]
 pub enum XcrabError {
@@ -66,7 +66,8 @@ impl Debug for XcrabError {
 
 #[tokio::main]
 async fn main() -> Result<(), XcrabError> {
-    let conf = config::load_file();
+    let xcrab_conf = config::load_file().unwrap();
+    dbg!(xcrab_conf);
 
     // connect to the x server
     let mut conn = AsyncDisplayConnection::create_async(None, None).await?;
@@ -93,9 +94,9 @@ async fn main() -> Result<(), XcrabError> {
         if !attrs.override_redirect && attrs.map_state == MapState::Viewable {
             clients.insert(
                 win,
-                XcrabClient::new(win, &mut conn, clients.len() + 1).await?,
+                XcrabClient::new(win, &mut conn, clients.len() + 1, xcrab_conf).await?,
             );
-            x11::client::calculate_geometry(&mut clients, &mut conn).await?;
+            x11::client::calculate_geometry(&mut clients, &mut conn, xcrab_conf).await?;
         }
     }
 
@@ -110,9 +111,9 @@ async fn main() -> Result<(), XcrabError> {
 
                 clients.insert(
                     win,
-                    XcrabClient::new(win, &mut conn, clients.len() + 1).await?,
+                    XcrabClient::new(win, &mut conn, clients.len() + 1, xcrab_conf).await?,
                 );
-                x11::client::calculate_geometry(&mut clients, &mut conn).await?;
+                x11::client::calculate_geometry(&mut clients, &mut conn, xcrab_conf).await?;
             }
             Event::ConfigureRequest(ev) => {
                 // cope from `ev` to `params`
