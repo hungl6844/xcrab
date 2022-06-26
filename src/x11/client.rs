@@ -2,7 +2,7 @@ use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
 use breadx::{AsyncDisplay, ConfigureWindowParameters, EventMask, Window};
 use std::collections::HashMap;
 
-use crate::{XcrabError, Result};
+use crate::{Result, XcrabError};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Direction {
@@ -53,7 +53,10 @@ impl XcrabWindowManager {
         if let Some(focused) = self.focused {
             use Direction::*;
 
-            let focused_client = *self.clients.get(&focused).ok_or(XcrabError::ClientDoesntExist)?;
+            let focused_client = *self
+                .clients
+                .get(&focused)
+                .ok_or(XcrabError::ClientDoesntExist)?;
 
             let new_client = match direction {
                 Up | Down => {
@@ -80,7 +83,7 @@ impl XcrabWindowManager {
                     }
 
                     new_client
-                },
+                }
                 Left | Right => {
                     if focused_client.width % 2 == 1 {
                         for client in self.clients.values_mut() {
@@ -107,7 +110,7 @@ impl XcrabWindowManager {
                     new_client
                 }
             };
-        
+
             self.clients.insert(win, new_client);
 
             self.update_client(conn, focused).await?;
@@ -143,13 +146,16 @@ impl XcrabWindowManager {
         conn: &mut Dpy,
         win: Window,
     ) -> Result<()> {
-        let client = *self.clients.get(&win).ok_or(XcrabError::ClientDoesntExist)?;
+        let client = *self
+            .clients
+            .get(&win)
+            .ok_or(XcrabError::ClientDoesntExist)?;
 
         let root = conn.default_root();
         let root_geo = root.geometry_immediate_async(conn).await?;
         let root_width: u32 = root_geo.width.into();
         let root_height: u32 = root_geo.height.into();
-        
+
         let x = (client.x * root_width) / self.grid_width;
         let y = (client.y * root_height) / self.grid_height;
         let width = (client.width * root_width) / self.grid_width;
@@ -157,21 +163,30 @@ impl XcrabWindowManager {
 
         let parent = win.query_tree_immediate_async(conn).await?.parent;
 
-        parent.configure_async(conn, ConfigureWindowParameters {
-            x: Some(x.try_into().unwrap()),
-            y: Some(y.try_into().unwrap()),
-            width: Some(width),
-            height: Some(height),
-            ..Default::default()
-        }).await?;
+        parent
+            .configure_async(
+                conn,
+                ConfigureWindowParameters {
+                    x: Some(x.try_into().unwrap()),
+                    y: Some(y.try_into().unwrap()),
+                    width: Some(width),
+                    height: Some(height),
+                    ..Default::default()
+                },
+            )
+            .await?;
 
-        win.configure_async(conn, ConfigureWindowParameters {
-            x: Some(0),
-            y: Some(0),
-            width: Some(width),
-            height: Some(height),
-            ..Default::default()
-        }).await?;
+        win.configure_async(
+            conn,
+            ConfigureWindowParameters {
+                x: Some(0),
+                y: Some(0),
+                width: Some(width),
+                height: Some(height),
+                ..Default::default()
+            },
+        )
+        .await?;
 
         Ok(())
     }
@@ -180,7 +195,11 @@ impl XcrabWindowManager {
         self.clients.contains_key(&win)
     }
 
-    pub async fn remove_client<Dpy: AsyncDisplay + ?Sized>(&mut self, conn: &mut Dpy, win: Window) -> Result<()> {
+    pub async fn remove_client<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+        win: Window,
+    ) -> Result<()> {
         // TODO: maybe an `unframe` method?
         let root = conn.default_root();
 
@@ -191,9 +210,7 @@ impl XcrabWindowManager {
         win.reparent_async(conn, root, 0, 0).await?;
 
         // no longer related to us, remove from save set
-        win
-            .change_save_set_async(conn, SetMode::Delete)
-            .await?;
+        win.change_save_set_async(conn, SetMode::Delete).await?;
 
         parent.free_async(conn).await?;
 
@@ -203,11 +220,7 @@ impl XcrabWindowManager {
     }
 }
 
-async fn frame<Dpy: AsyncDisplay + ?Sized>(
-    conn: &mut Dpy,
-    win: Window,
-) -> Result<Window> {
-    const BORDER_WIDTH: u16 = 3;
+async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Result<Window> {
     const GAP_WIDTH: u16 = 10;
 
     let root = conn.default_root();
@@ -221,8 +234,8 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(
             geometry.y,
             geometry.width,
             geometry.height,
-            3,
-            0xff_00_00,
+            crate::CONFIG.border_size(),
+            crate::CONFIG.border_color(),
             0x00_00_00,
         )
         .await?;

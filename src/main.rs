@@ -1,12 +1,15 @@
 #![warn(clippy::pedantic)]
 
-use std::fmt::{Display, Debug};
+use std::fmt::{Debug, Display};
 
 use breadx::{
     prelude::{AsyncDisplayXprotoExt, MapState},
-    traits::DisplayBase, AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters,
-    Event, EventMask,
+    traits::DisplayBase,
+    AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters, Event,
+    EventMask,
 };
+
+use lazy_static::lazy_static;
 
 mod config;
 mod x11;
@@ -46,6 +49,10 @@ impl From<std::env::VarError> for XcrabError {
     }
 }
 
+lazy_static! {
+    pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_default();
+}
+
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -55,7 +62,7 @@ impl Display for XcrabError {
             Self::Var(ve) => Display::fmt(&ve, f)?,
             Self::ClientDoesntExist => Display::fmt("client didn't exist", f)?,
         };
-        
+
         Ok(())
     }
 }
