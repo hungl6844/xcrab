@@ -9,3 +9,4 @@ tokio = { version = "1.19.2", features = ["full"] }
 toml = "0.5.9"
 serde = { version = "1.0.137", features = ["derive"]}
 lazy_static = "1.4.0"
+slotmap = "1.0.6"

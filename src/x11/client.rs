@@ -1,6 +1,9 @@
 use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
 use breadx::{AsyncDisplay, ConfigureWindowParameters, EventMask, Window};
+use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 use crate::{Result, XcrabError, CONFIG};
 
@@ -12,27 +15,86 @@ pub enum Direction {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Directionality {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Dimensions {
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+}
+
+impl Dimensions {
+    fn split(self, direction: Directionality, count: usize) -> Vec<Self> {
+        match direction {
+            Directionality::Horizontal => {
+                let excess = self.width % u16::try_from(count).unwrap();
+                let new_width = self.width / u16::try_from(count).unwrap();
+
+                (0..count.try_into().unwrap())
+                    .map(|i| Dimensions {
+                        x: self.x + i * new_width + if i < excess { 1 } else { 0 },
+                        width: new_width,
+                        ..self
+                    })
+                    .collect()
+            }
+            Directionality::Vertical => {
+                let excess = self.height % u16::try_from(count).unwrap();
+                let new_height = self.height / u16::try_from(count).unwrap();
+
+                (0..count.try_into().unwrap())
+                    .map(|i| Dimensions {
+                        y: self.y + i * new_height + if i < excess { 1 } else { 0 },
+                        height: new_height,
+                        ..self
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
+new_key_type!(
+    struct XcrabKey;
+);
+
 #[derive(Debug, Clone, Default)]
 pub struct XcrabWindowManager {
-    clients: HashMap<Window, XcrabClient>,
+    clients: HashMap<Window, XcrabKey>,
+    rects: SlotMap<XcrabKey, Rectangle>,
     focused: Option<Window>,
-    grid_width: u32,
-    grid_height: u32,
+}
+
+#[derive(Debug, Clone)]
+struct Rectangle {
+    parent: XcrabKey,
+    cached_dimensions: Dimensions,
+    contents: RectangleContents,
+}
+
+#[derive(Debug, Clone)]
+enum RectangleContents {
+    Pane(Pane),
+    Client(Client),
+}
+
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone)]
+struct Pane {
+    children: Vec<XcrabKey>,
+    directionality: Directionality,
 }
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, Copy)]
-struct XcrabClient {
+struct Client {
     frame: FramedWindow,
-    geo: XcrabGeometry,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct XcrabGeometry {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
 }
 
 impl XcrabWindowManager {
@@ -58,90 +120,148 @@ impl XcrabWindowManager {
 
         if let Some(focused) = self.focused {
             #[allow(clippy::enum_glob_use)]
-            use Direction::*;
+            use {Direction::*, Directionality::*};
 
-            let focused_client = *self
+            // this code path is somewhat difficult to understand, so i added some comments
+
+            // the XcrabKey to the focused client
+            let focused_client_key = *self
                 .clients
                 .get(&focused)
                 .ok_or(XcrabError::ClientDoesntExist)?;
 
-            let new_client = match direction {
-                Up | Down => {
-                    if focused_client.geo.height % 2 == 1 {
-                        for client in self.clients.values_mut() {
-                            client.geo.y *= 2;
-                            client.geo.height *= 2;
+            // the directionality we want to find: if we are tiling Up or Down, we
+            // want a Vertical pane, and for Left or Right we want a Horizontal one.
+            let target_directionality = match direction {
+                Up | Down => Vertical,
+                Left | Right => Horizontal,
+            };
+
+            // this var will be used in the upcoming loop
+            let mut child_key = focused_client_key;
+
+            // go up the chain (using `Rectangle.parent`) until you find a pane with the correct directionality
+            let parent_key = loop {
+                let parent_key = self.rects.get(child_key).unwrap().parent;
+
+                if parent_key == child_key {
+                    // uh oh, we hit the top, time to create a pane
+
+                    child_key = focused_client_key;
+                    let child = self.rects.get(child_key).unwrap();
+                    // parent of the focused client
+                    let parent_key = child.parent;
+
+                    // the new pane
+                    let new_pane = Rectangle {
+                        parent: parent_key,
+                        cached_dimensions: child.cached_dimensions,
+                        contents: RectangleContents::Pane(Pane {
+                            // its child is the focused client
+                            children: vec![child_key],
+                            directionality: target_directionality,
+                        }),
+                    };
+
+                    let new_pane_key = self.rects.insert(new_pane);
+
+                    // create the new_pane -> child relationship
+                    self.rects.get_mut(child_key).unwrap().parent = new_pane_key;
+
+                    let parent = self.rects.get_mut(parent_key).unwrap();
+                    match &mut parent.contents {
+                        RectangleContents::Pane(pane) => {
+                            let index = pane
+                                .children
+                                .iter()
+                                .copied()
+                                .position(|v| v == child_key)
+                                .unwrap();
+                            // remove the parent -> child relation and replace it with parent -> new_pane
+                            pane.children[index] = new_pane_key;
                         }
-
-                        self.grid_height *= 2;
+                        // this means that the focused client is the root client
+                        RectangleContents::Client(_) => {},
                     }
 
-                    let focused_client = self.clients.get_mut(&focused).unwrap();
-
-                    focused_client.geo.height /= 2;
-                    let height = focused_client.geo.height;
-
-                    let mut new_client = XcrabClient { frame, geo: focused_client.geo };
-
-                    if let Up = direction {
-                        focused_client.geo.y += height;
-                    } else {
-                        new_client.geo.y += height;
-                    }
-
-                    new_client
+                    break new_pane_key;
                 }
-                Left | Right => {
-                    if focused_client.geo.width % 2 == 1 {
-                        for client in self.clients.values_mut() {
-                            client.geo.x *= 2;
-                            client.geo.width *= 2;
+
+                let parent = self.rects.get(parent_key).unwrap();
+
+                match &parent.contents {
+                    RectangleContents::Pane(pane) => {
+                        if pane.directionality == target_directionality {
+                            // yay! found it
+                            break parent_key;
                         }
 
-                        self.grid_width *= 2;
+                        // nope, continue
+                        child_key = parent_key;
                     }
-
-                    let focused_client = self.clients.get_mut(&focused).unwrap();
-
-                    focused_client.geo.width /= 2;
-                    let width = focused_client.geo.width;
-
-                    let mut new_client = XcrabClient { frame, geo: focused_client.geo };
-
-                    if let Left = direction {
-                        focused_client.geo.x += width;
-                    } else {
-                        new_client.geo.x += width;
-                    }
-
-                    new_client
+                    // parents should never be clients, only panes
+                    RectangleContents::Client(_) => unreachable!(),
                 }
             };
 
-            self.clients.insert(win, new_client);
+            // `parent_key` now holds the key for the pane with the target
+            // directionality, and `child_key` holds the child key which will
+            // be used to find where to insert our new client
 
-            self.update_client(conn, focused).await?;
-            self.update_client(conn, win).await?;
+            // the key to the newly created client
+            let new_rect_key = self.rects.insert(Rectangle {
+                parent: parent_key,
+                // this default will be overriden by the `update_rectangle` down below
+                cached_dimensions: Dimensions::default(),
+                contents: RectangleContents::Client(Client { frame }),
+            });
 
+            // the Pane of the Rectangle of `parent_key`
+            let parent = match &mut self.rects.get_mut(parent_key).unwrap().contents {
+                RectangleContents::Pane(pane) => pane,
+                RectangleContents::Client(_) => unreachable!(),
+            };
+
+            // the index which we want to `insert` at, found using `child_key`
+            let mut index = parent
+                .children
+                .iter()
+                .copied()
+                .position(|v| v == child_key)
+                .unwrap();
+
+            if let Down | Right = direction {
+                index += 1;
+            }
+
+            // insert the new rect
+            parent.children.insert(index, new_rect_key);
+
+            self.clients.insert(win, new_rect_key);
+            
             self.focused = Some(win);
+
+            // update the parent rectangle to also update all the siblings of out new rect
+            self.update_rectangle(conn, parent_key, None).await?;
         } else {
-            self.grid_width = 1;
-            self.grid_height = 1;
+            let root_geo = conn.default_root().geometry_immediate_async(conn).await?;
 
-            let geo = XcrabGeometry {
-                x: 0,
-                y: 0,
-                width: 1,
-                height: 1,
-            };
+            let key = self.rects.insert_with_key(|key| Rectangle {
+                parent: key,
+                cached_dimensions: Dimensions {
+                    x: root_geo.x.try_into().unwrap(),
+                    y: root_geo.y.try_into().unwrap(),
+                    width: root_geo.width,
+                    height: root_geo.height,
+                },
+                contents: RectangleContents::Client(Client { frame }),
+            });
 
-            let client = XcrabClient { frame, geo };
-
-            self.clients.insert(win, client);
-
-            self.update_client(conn, win).await?;
+            self.clients.insert(win, key);
 
             self.focused = Some(win);
+
+            self.update_rectangle(conn, key, None).await?;
         }
 
         frame.map(conn).await?;
@@ -149,41 +269,57 @@ impl XcrabWindowManager {
         Ok(())
     }
 
-    pub async fn update_client<Dpy: AsyncDisplay + ?Sized>(
-        &mut self,
-        conn: &mut Dpy,
-        win: Window,
-    ) -> Result<()> {
-        let client = *self
-            .clients
-            .get(&win)
-            .ok_or(XcrabError::ClientDoesntExist)?;
+    // TODO: maybe `https://crates.io/crates/async_recursion`?
+    #[must_use]
+    fn update_rectangle<'a, Dpy: AsyncDisplay + ?Sized>(
+        &'a mut self,
+        conn: &'a mut Dpy,
+        key: XcrabKey,
+        dimensions: Option<Dimensions>,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
+        Box::pin(async move {
+            let rect = self
+                .rects
+                .get_mut(key)
+                .ok_or(XcrabError::ClientDoesntExist)?;
 
-        let root = conn.default_root();
-        let root_geo = root.geometry_immediate_async(conn).await?;
-        let root_width: u32 = root_geo.width.into();
-        let root_height: u32 = root_geo.height.into();
+            let dimensions = dimensions.unwrap_or(rect.cached_dimensions);
+            rect.cached_dimensions = dimensions;
 
-        let x = (client.geo.x * root_width) / self.grid_width;
-        let y = (client.geo.y * root_height) / self.grid_height;
-        let width = (client.geo.width * root_width) / self.grid_width;
-        let height = (client.geo.height * root_height) / self.grid_height;
+            match &mut rect.contents {
+                RectangleContents::Pane(pane) => {
+                    // TODO: gap
 
-        client
-            .frame
-            .configure(
-                conn,
-                ConfigureWindowParameters {
-                    x: Some(x.try_into().unwrap()),
-                    y: Some(y.try_into().unwrap()),
-                    width: Some(width),
-                    height: Some(height),
-                    ..Default::default()
-                },
-            )
-            .await?;
+                    let new_dimensions = dimensions.split(pane.directionality, pane.children.len());
 
-        Ok(())
+                    for (key, dimensions) in pane
+                        .children
+                        .clone()
+                        .into_iter()
+                        .zip(new_dimensions.into_iter())
+                    {
+                        self.update_rectangle(conn, key, Some(dimensions)).await?;
+                    }
+                }
+                RectangleContents::Client(client) => {
+                    client
+                        .frame
+                        .configure(
+                            conn,
+                            ConfigureWindowParameters {
+                                x: Some(dimensions.x.into()),
+                                y: Some(dimensions.y.into()),
+                                width: Some(dimensions.width.into()),
+                                height: Some(dimensions.height.into()),
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+                }
+            }
+
+            Ok(())
+        })
     }
 
     pub fn has_client(&self, win: Window) -> bool {
@@ -195,12 +331,37 @@ impl XcrabWindowManager {
         conn: &mut Dpy,
         win: Window,
     ) -> Result<()> {
-        self.clients
-            .remove(&win)
-            .ok_or(XcrabError::ClientDoesntExist)?
-            .frame
-            .unframe(conn)
-            .await?;
+        let client_key = *self
+            .clients
+            .get(&win)
+            .ok_or(XcrabError::ClientDoesntExist)?;
+
+        let client = self.rects.get(client_key).unwrap();
+
+        match client.contents {
+            RectangleContents::Pane(_) => unreachable!(),
+            RectangleContents::Client(client) => {
+                client.frame.unframe(conn).await?;
+            },
+        }
+
+        let parent_key = client.parent;
+        let parent = self.rects.get_mut(parent_key).unwrap();
+
+        match &mut parent.contents {
+            RectangleContents::Pane(pane) => {
+                pane.children.retain(|&v| v != client_key);
+            },
+            RectangleContents::Client(_) => unreachable!(),
+        }
+
+        self.update_rectangle(conn, parent_key, None).await?;
+
+        self.clients.remove(&win);
+
+        if self.focused.unwrap() == win {
+            self.focused = Some(*self.clients.keys().next().unwrap());
+        }
 
         Ok(())
     }
@@ -269,12 +430,14 @@ impl FramedWindow {
 
         self.frame.unmap_async(conn).await?;
 
-        self.win.reparent_async(conn, root, 0, 0).await?;
-
-        // no longer related to us, remove from save set
-        self.win
-            .change_save_set_async(conn, SetMode::Delete)
-            .await?;
+        // if the window doesnt exist, this might error. this can happen if the
+        // client chooses to free their window without unmapping first.
+        if self.win.reparent_async(conn, root, 0, 0).await.is_ok() {
+            // no longer related to us, remove from save set
+            self.win
+                .change_save_set_async(conn, SetMode::Delete)
+                .await?;
+        }
 
         self.frame.free_async(conn).await?;
 
@@ -311,5 +474,5 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
 
     win.reparent_async(conn, frame, 0, 0).await?;
 
-    Ok(FramedWindow { frame, win })
+    Ok(dbg!(FramedWindow { frame, win }))
 }
