@@ -1,26 +1,17 @@
 #![warn(clippy::pedantic)]
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap
-)]
 
-use std::collections::HashMap;
-use std::fmt::{Debug, Display};
+use std::fmt::{Display, Debug};
 
 use breadx::{
-    prelude::{AsyncDisplayXprotoExt, MapState, SetMode},
-    traits::DisplayBase,
-    AsyncDisplay, AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters,
-    Event, EventMask, Window,
+    prelude::{AsyncDisplayXprotoExt, MapState},
+    traits::DisplayBase, AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters,
+    Event, EventMask,
 };
 
 mod config;
 mod x11;
-use x11::client::XcrabClient;
 
-// const BORDER_WIDTH: u16 = 5;
-// const GAP_WIDTH: u16 = 10;
+use x11::client::XcrabWindowManager;
 
 #[non_exhaustive]
 pub enum XcrabError {
@@ -28,6 +19,7 @@ pub enum XcrabError {
     Io(std::io::Error),
     Toml(toml::de::Error),
     Var(std::env::VarError),
+    ClientDoesntExist,
 }
 
 impl From<BreadError> for XcrabError {
@@ -61,7 +53,9 @@ impl Display for XcrabError {
             Self::Io(ie) => Display::fmt(&ie, f)?,
             Self::Toml(te) => Display::fmt(&te, f)?,
             Self::Var(ve) => Display::fmt(&ve, f)?,
+            Self::ClientDoesntExist => Display::fmt("client didn't exist", f)?,
         };
+        
         Ok(())
     }
 }
@@ -72,11 +66,10 @@ impl Debug for XcrabError {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), XcrabError> {
-    let xcrab_conf = config::load_file().unwrap_or_default();
-    dbg!(xcrab_conf);
+type Result<T> = std::result::Result<T, XcrabError>;
 
+#[tokio::main]
+async fn main() -> Result<()> {
     // connect to the x server
     let mut conn = AsyncDisplayConnection::create_async(None, None).await?;
 
@@ -89,7 +82,7 @@ async fn main() -> Result<(), XcrabError> {
     )
     .await?;
 
-    let mut clients = HashMap::new();
+    let mut manager = XcrabWindowManager::new();
 
     conn.grab_server_async().await?;
 
@@ -98,13 +91,8 @@ async fn main() -> Result<(), XcrabError> {
     for &win in top_level_windows.iter() {
         let attrs = win.window_attributes_immediate_async(&mut conn).await?;
 
-        println!("a");
         if !attrs.override_redirect && attrs.map_state == MapState::Viewable {
-            clients.insert(
-                win,
-                XcrabClient::new(win, &mut conn, clients.len() + 1, xcrab_conf).await?,
-            );
-            x11::client::calculate_geometry(&mut clients, &mut conn, xcrab_conf).await?;
+            manager.add_client(&mut conn, win).await?;
         }
     }
 
@@ -115,16 +103,10 @@ async fn main() -> Result<(), XcrabError> {
 
         match ev {
             Event::MapRequest(ev) => {
-                let win = ev.window;
-
-                clients.insert(
-                    win,
-                    XcrabClient::new(win, &mut conn, clients.len() + 1, xcrab_conf).await?,
-                );
-                x11::client::calculate_geometry(&mut clients, &mut conn, xcrab_conf).await?;
+                manager.add_client(&mut conn, ev.window).await?;
             }
             Event::ConfigureRequest(ev) => {
-                // cope from `ev` to `params`
+                // copy from `ev` to `params`
                 let mut params = ConfigureWindowParameters {
                     x: Some(ev.x.into()),
                     y: Some(ev.y.into()),
@@ -136,7 +118,7 @@ async fn main() -> Result<(), XcrabError> {
                 };
 
                 // if this is a client, deny changing position or size (we are a tiling wm!)
-                if clients.contains_key(&ev.window) {
+                if manager.has_client(ev.window) {
                     params.x = None;
                     params.y = None;
                     params.width = None;
@@ -147,76 +129,11 @@ async fn main() -> Result<(), XcrabError> {
                 ev.window.configure_async(&mut conn, params).await?;
             }
             Event::UnmapNotify(ev) => {
-                if ev.event != root {
-                    if let Some(parent) = clients.get(&ev.window) {
-                        parent.parent.unmap_async(&mut conn).await?;
-
-                        ev.window.reparent_async(&mut conn, root, 0, 0).await?;
-
-                        // no longer related to us, remove from save set
-                        ev.window
-                            .change_save_set_async(&mut conn, SetMode::Delete)
-                            .await?;
-
-                        parent.parent.free_async(&mut conn).await?;
-
-                        clients.remove(&ev.window);
-                    }
+                if ev.event != root && manager.has_client(ev.window) {
+                    manager.remove_client(&mut conn, ev.window).await?;
                 }
             }
             _ => {}
         }
     }
-}
-
-async fn manage_window<Dpy: AsyncDisplay + ?Sized>(
-    conn: &mut Dpy,
-    win: Window,
-) -> Result<Window, XcrabError> {
-    // the client wishes for their window to be displayed. we must create a new
-    // window with a titlebar and reparent the old window to this new window.
-
-    let root = conn.default_root();
-
-    let geometry = win.geometry_immediate_async(conn).await?;
-
-    // TODO: tiling window manager logic
-    let new_x = geometry.x;
-    let new_y = geometry.y;
-    let new_width = geometry.width;
-    let new_height = geometry.height;
-
-    let parent = conn
-        .create_simple_window_async(
-            root, new_x, new_y, new_width, new_height, 3, 0xff_00_00, 0x00_00_00,
-        )
-        .await?;
-
-    parent
-        .set_event_mask_async(
-            conn,
-            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
-        )
-        .await?;
-
-    win.change_save_set_async(conn, SetMode::Insert).await?;
-
-    // tell the window what size we made it
-    win.configure_async(
-        conn,
-        ConfigureWindowParameters {
-            width: Some(new_width.into()),
-            height: Some(new_height.into()),
-            ..breadx::ConfigureWindowParameters::default()
-        },
-    )
-    .await?;
-
-    win.reparent_async(conn, parent, 0, 0).await?;
-
-    parent.map_async(conn).await?;
-
-    win.map_async(conn).await?;
-
-    Ok(parent)
 }

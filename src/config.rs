@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct XcrabConfig {
     border_color: Option<u32>,
