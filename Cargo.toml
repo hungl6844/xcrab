@@ -7,4 +7,4 @@ edition = "2021"
 breadx = { version = "2.0.0", features = ["async"] }
 tokio = { version = "1.19.2", features = ["full"] }
 toml = "0.5.9"
-serde = "1.0.137"
+serde = { version = "1.0.137", features = ["derive"]}

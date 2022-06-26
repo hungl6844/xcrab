@@ -16,7 +16,7 @@ use breadx::{
 };
 
 mod x11;
-
+mod config;
 use x11::client::XcrabClient;
 
 const BORDER_WIDTH: u16 = 5;
