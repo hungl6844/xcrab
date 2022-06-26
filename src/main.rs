@@ -15,8 +15,8 @@ use breadx::{
     Event, EventMask, Window,
 };
 
-mod x11;
 mod config;
+mod x11;
 use x11::client::XcrabClient;
 
 const BORDER_WIDTH: u16 = 5;
@@ -25,6 +25,8 @@ const GAP_WIDTH: u16 = 10;
 #[non_exhaustive]
 pub enum XcrabError {
     Bread(BreadError),
+    Io(std::io::Error),
+    Toml(toml::de::Error),
 }
 
 impl From<BreadError> for XcrabError {
@@ -33,10 +35,24 @@ impl From<BreadError> for XcrabError {
     }
 }
 
+impl From<std::io::Error> for XcrabError {
+    fn from(v: std::io::Error) -> Self {
+        Self::Io(v)
+    }
+}
+
+impl From<toml::de::Error> for XcrabError {
+    fn from(v: toml::de::Error) -> Self {
+        Self::Toml(v)
+    }
+}
+
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bread(be) => Display::fmt(&be, f)?,
+            Self::Io(ie) => Display::fmt(&ie, f)?,
+            Self::Toml(te) => Display::fmt(&te, f)?,
         };
         Ok(())
     }
@@ -50,6 +66,8 @@ impl Debug for XcrabError {
 
 #[tokio::main]
 async fn main() -> Result<(), XcrabError> {
+    let conf = config::load_file();
+
     // connect to the x server
     let mut conn = AsyncDisplayConnection::create_async(None, None).await?;
 
