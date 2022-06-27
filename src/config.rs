@@ -21,6 +21,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Deserialize)]
 pub struct XcrabConfig {
     border_color: Option<u32>,
+    focused_color: Option<u32>,
     border_size: Option<u16>,
     gap_size: Option<u16>,
     pub msg: Option<XcrabMsgConfig>,
@@ -32,6 +33,7 @@ pub struct XcrabMsgConfig {
 }
 
 const DEFAULT_BORDER_COLOR: u32 = 0xff_00_00; // red
+const DEFAULT_FOCUSED_COLOR: u32 = 0x00_00_ff; // blue
 const DEFAULT_BORDER_SIZE: u16 = 5;
 const DEFAULT_GAP_SIZE: u16 = 10;
 
@@ -39,6 +41,7 @@ impl Default for XcrabConfig {
     fn default() -> Self {
         Self {
             border_color: Some(DEFAULT_BORDER_COLOR),
+            focused_color: Some(DEFAULT_FOCUSED_COLOR),
             border_size: Some(DEFAULT_BORDER_SIZE),
             gap_size: Some(DEFAULT_GAP_SIZE),
             msg: None, // TODO: use a default socket path
@@ -49,6 +52,10 @@ impl Default for XcrabConfig {
 impl XcrabConfig {
     pub fn border_color(&self) -> u32 {
         self.border_color.unwrap_or(DEFAULT_BORDER_COLOR)
+    }
+
+    pub fn focused_color(&self) -> u32 {
+        self.focused_color.unwrap_or(DEFAULT_FOCUSED_COLOR)
     }
 
     pub fn border_size(&self) -> u16 {

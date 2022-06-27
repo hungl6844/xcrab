@@ -14,7 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
-use breadx::{AsyncDisplay, BreadError, ConfigureWindowParameters, ErrorCode, EventMask, Window};
+use breadx::{
+    AsyncDisplay, BreadError, ConfigureWindowParameters, ErrorCode, EventMask, Window,
+    WindowParameters,
+};
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
 use std::future::Future;
@@ -214,8 +217,7 @@ impl XcrabWindowManager {
         // ]
         // .choose(&mut rand::thread_rng())
         // .unwrap();
-        self.add_client_direction(conn, win, Direction::Right)
-            .await
+        self.add_client_direction(conn, win, Direction::Right).await
     }
 
     /// Adds a new client in the given direction from the focused window.
@@ -393,7 +395,7 @@ impl XcrabWindowManager {
         self.clients.insert(win, new_rect_key);
 
         self.focused = Some(win);
-        
+
         // update
         self.update_rectangle(conn, parent_key, None).await?;
 
@@ -477,6 +479,7 @@ impl XcrabWindowManager {
                                 height: Some(dimensions.height.into()),
                                 ..Default::default()
                             },
+                            self.focused.unwrap(),
                         )
                         .await?;
                 }
@@ -512,14 +515,14 @@ impl XcrabWindowManager {
             .children
             .retain(|&v| v != client_key);
 
-        self.update_rectangle(conn, parent_key, None).await?;
-
         self.clients.remove(&win);
         self.rects.remove(client_key);
 
         if self.focused.unwrap() == win {
             self.focused = Some(*self.clients.keys().next().unwrap());
         }
+
+        self.update_rectangle(conn, parent_key, None).await?;
 
         Ok(())
     }
@@ -548,6 +551,7 @@ impl FramedWindow {
         self,
         conn: &mut Dpy,
         props: ConfigureWindowParameters,
+        focused_win: Window,
     ) -> Result<()> {
         let border_size = CONFIG.border_size();
         let gap_size = CONFIG.gap_size();
@@ -557,6 +561,22 @@ impl FramedWindow {
 
         let width = props.width.map(|v| v - dimension_inset);
         let height = props.height.map(|v| v - dimension_inset);
+
+        let focused = focused_win == self.win;
+
+        self.frame
+            .change_attributes_async(
+                conn,
+                WindowParameters {
+                    border_pixel: Some(if focused {
+                        CONFIG.focused_color()
+                    } else {
+                        CONFIG.border_color()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await?;
 
         self.frame
             .configure_async(
@@ -621,6 +641,7 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
     let frame = conn
         .create_simple_window_async(
             root,
+            // theoretically, all of these could be ignoring since they are set later
             geometry.x,
             geometry.y,
             geometry.width,
