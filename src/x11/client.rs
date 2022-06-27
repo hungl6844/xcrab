@@ -163,7 +163,11 @@ impl XcrabWindowManager {
                         }),
                     };
 
-                    let new_pane_key = self.rects.insert(new_pane);
+                    let new_pane_key = if child_key == parent_key {
+                        self.rects.insert_with_key(|key| Rectangle { parent: key, ..new_pane })
+                    } else {
+                        self.rects.insert(new_pane)
+                    };
 
                     // create the new_pane -> child relationship
                     self.rects.get_mut(child_key).unwrap().parent = new_pane_key;
