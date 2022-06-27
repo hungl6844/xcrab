@@ -14,6 +14,9 @@ macro_rules! unwrap_or_continue {
 
 // TODO: Accept some sort of handle to perform tasks on the WM
 pub async fn listener_task(socket_path: &Path) -> Result<()> {
+    if socket_path.exists() {
+        std::fs::remove_file(socket_path)?;
+    }
     let listener = UnixListener::bind(socket_path)?;
     loop {
         let (mut stream, _) = unwrap_or_continue!(listener.accept().await);
