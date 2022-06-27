@@ -24,6 +24,7 @@ pub struct XcrabConfig {
     focused_color: Option<u32>,
     border_size: Option<u16>,
     gap_size: Option<u16>,
+    outer_gap_size: Option<u16>,
     pub msg: Option<XcrabMsgConfig>,
 }
 
@@ -35,7 +36,7 @@ pub struct XcrabMsgConfig {
 const DEFAULT_BORDER_COLOR: u32 = 0xff_00_00; // red
 const DEFAULT_FOCUSED_COLOR: u32 = 0x00_00_ff; // blue
 const DEFAULT_BORDER_SIZE: u16 = 5;
-const DEFAULT_GAP_SIZE: u16 = 10;
+const DEFAULT_GAP_SIZE: u16 = 20;
 
 impl Default for XcrabConfig {
     fn default() -> Self {
@@ -44,6 +45,7 @@ impl Default for XcrabConfig {
             focused_color: Some(DEFAULT_FOCUSED_COLOR),
             border_size: Some(DEFAULT_BORDER_SIZE),
             gap_size: Some(DEFAULT_GAP_SIZE),
+            outer_gap_size: None,
             msg: None, // TODO: use a default socket path
         }
     }
@@ -64,6 +66,10 @@ impl XcrabConfig {
 
     pub fn gap_size(&self) -> u16 {
         self.gap_size.unwrap_or(DEFAULT_GAP_SIZE)
+    }
+
+    pub fn outer_gap_size(&self) -> u16 {
+        self.outer_gap_size.unwrap_or_else(|| self.gap_size())
     }
 }
 

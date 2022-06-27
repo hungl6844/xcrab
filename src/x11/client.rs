@@ -49,27 +49,32 @@ pub struct Dimensions {
 
 impl Dimensions {
     fn split(self, direction: Directionality, count: usize) -> Vec<Self> {
+        let count_u16 = u16::try_from(count).unwrap();
         match direction {
             Directionality::Horizontal => {
-                let excess = self.width % u16::try_from(count).unwrap();
-                let new_width = self.width / u16::try_from(count).unwrap();
+                let amount_for_windows = self.width - CONFIG.gap_size() * (count_u16 - 1);
+                let excess = amount_for_windows % count_u16;
+                let window_size = amount_for_windows / count_u16;
+                let window_stride = window_size + CONFIG.gap_size();
 
                 (0..count.try_into().unwrap())
                     .map(|i| Dimensions {
-                        x: self.x + i * new_width + if i < excess { 1 } else { 0 },
-                        width: new_width,
+                        x: self.x + i * window_stride + if i < excess { 1 } else { 0 },
+                        width: window_size,
                         ..self
                     })
                     .collect()
             }
             Directionality::Vertical => {
-                let excess = self.height % u16::try_from(count).unwrap();
-                let new_height = self.height / u16::try_from(count).unwrap();
+                let amount_for_windows = self.height - CONFIG.gap_size() * (count_u16 - 1);
+                let excess = amount_for_windows % count_u16;
+                let window_size = amount_for_windows / count_u16;
+                let window_stride = window_size + CONFIG.gap_size();
 
                 (0..count.try_into().unwrap())
                     .map(|i| Dimensions {
-                        y: self.y + i * new_height + if i < excess { 1 } else { 0 },
-                        height: new_height,
+                        y: self.y + i * window_stride + if i < excess { 1 } else { 0 },
+                        height: window_size,
                         ..self
                     })
                     .collect()
@@ -413,13 +418,14 @@ impl XcrabWindowManager {
 
         let root_geo = conn.default_root().geometry_immediate_async(conn).await?;
 
+        let outer_gap_size = CONFIG.outer_gap_size();
         let key = self.rects.insert_with_key(|key| Rectangle {
             parent: key,
             cached_dimensions: Dimensions {
-                x: root_geo.x.try_into().unwrap(),
-                y: root_geo.y.try_into().unwrap(),
-                width: root_geo.width,
-                height: root_geo.height,
+                x: u16::try_from(root_geo.x).unwrap() + outer_gap_size,
+                y: u16::try_from(root_geo.y).unwrap() + outer_gap_size,
+                width: root_geo.width - 2 * outer_gap_size,
+                height: root_geo.height - 2 * outer_gap_size,
             },
             contents: RectangleContents::Client(Client { frame }),
         });
@@ -553,14 +559,10 @@ impl FramedWindow {
         props: ConfigureWindowParameters,
         focused_win: Window,
     ) -> Result<()> {
-        let border_size = CONFIG.border_size();
-        let gap_size = CONFIG.gap_size();
+        let inset = 2 * u32::from(CONFIG.border_size());
 
-        let coordinate_inset = i32::from(gap_size);
-        let dimension_inset = 2 * (u32::from(gap_size) + u32::from(border_size));
-
-        let width = props.width.map(|v| v - dimension_inset);
-        let height = props.height.map(|v| v - dimension_inset);
+        let width = props.width.map(|v| v - inset);
+        let height = props.height.map(|v| v - inset);
 
         let focused = focused_win == self.win;
 
@@ -582,11 +584,11 @@ impl FramedWindow {
             .configure_async(
                 conn,
                 ConfigureWindowParameters {
-                    x: props.x.map(|v| v + coordinate_inset),
-                    y: props.y.map(|v| v + coordinate_inset),
+                    x: props.x,
+                    y: props.y,
                     width,
                     height,
-                    border_width: Some(border_size.into()),
+                    border_width: Some(CONFIG.border_size().into()),
                     ..Default::default()
                 },
             )
