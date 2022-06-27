@@ -1,5 +1,5 @@
 use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
-use breadx::{AsyncDisplay, ConfigureWindowParameters, EventMask, Window};
+use breadx::{AsyncDisplay, BreadError, ConfigureWindowParameters, ErrorCode, EventMask, Window};
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
 use std::future::Future;
@@ -181,7 +181,7 @@ impl XcrabWindowManager {
                             pane.children[index] = new_pane_key;
                         }
                         // this means that the focused client is the root client
-                        RectangleContents::Client(_) => {},
+                        RectangleContents::Client(_) => {}
                     }
 
                     break new_pane_key;
@@ -238,7 +238,7 @@ impl XcrabWindowManager {
             parent.children.insert(index, new_rect_key);
 
             self.clients.insert(win, new_rect_key);
-            
+
             self.focused = Some(win);
 
             // update the parent rectangle to also update all the siblings of out new rect
@@ -342,7 +342,7 @@ impl XcrabWindowManager {
             RectangleContents::Pane(_) => unreachable!(),
             RectangleContents::Client(client) => {
                 client.frame.unframe(conn).await?;
-            },
+            }
         }
 
         let parent_key = client.parent;
@@ -351,19 +351,32 @@ impl XcrabWindowManager {
         match &mut parent.contents {
             RectangleContents::Pane(pane) => {
                 pane.children.retain(|&v| v != client_key);
-            },
+            }
             RectangleContents::Client(_) => unreachable!(),
         }
 
         self.update_rectangle(conn, parent_key, None).await?;
 
         self.clients.remove(&win);
+        self.rects.remove(client_key);
 
         if self.focused.unwrap() == win {
             self.focused = Some(*self.clients.keys().next().unwrap());
         }
 
         Ok(())
+    }
+}
+
+fn may_not_exist(res: breadx::Result) -> breadx::Result {
+    match res {
+        // if its a `Window` error, that means it happened because
+        // a window failed to exist, and we want to allow those
+        Err(BreadError::XProtocol {
+            error_code: ErrorCode(3),
+            ..
+        }) => Ok(()),
+        v => v,
     }
 }
 
@@ -402,24 +415,26 @@ impl FramedWindow {
             )
             .await?;
 
-        self.win
-            .configure_async(
-                conn,
-                ConfigureWindowParameters {
-                    x: Some(-1),
-                    y: Some(-1),
-                    width,
-                    height,
-                    ..Default::default()
-                },
-            )
-            .await?;
+        may_not_exist(
+            self.win
+                .configure_async(
+                    conn,
+                    ConfigureWindowParameters {
+                        x: Some(-1),
+                        y: Some(-1),
+                        width,
+                        height,
+                        ..Default::default()
+                    },
+                )
+                .await,
+        )?;
 
         Ok(())
     }
 
     async fn map<Dpy: AsyncDisplay + ?Sized>(self, conn: &mut Dpy) -> Result<()> {
-        self.win.map_async(conn).await?;
+        may_not_exist(self.win.map_async(conn).await)?;
         self.frame.map_async(conn).await?;
 
         Ok(())
@@ -430,14 +445,9 @@ impl FramedWindow {
 
         self.frame.unmap_async(conn).await?;
 
-        // if the window doesnt exist, this might error. this can happen if the
-        // client chooses to free their window without unmapping first.
-        if self.win.reparent_async(conn, root, 0, 0).await.is_ok() {
-            // no longer related to us, remove from save set
-            self.win
-                .change_save_set_async(conn, SetMode::Delete)
-                .await?;
-        }
+        may_not_exist(self.win.reparent_async(conn, root, 0, 0).await)?;
+        // no longer related to us, remove from save set
+        may_not_exist(self.win.change_save_set_async(conn, SetMode::Delete).await)?;
 
         self.frame.free_async(conn).await?;
 
@@ -448,6 +458,7 @@ impl FramedWindow {
 async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Result<FramedWindow> {
     let root = conn.default_root();
 
+    // here, we cant use `may_not_exist` because we need the geometry
     let geometry = win.geometry_immediate_async(conn).await?;
 
     let frame = conn
@@ -470,9 +481,9 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
         )
         .await?;
 
-    win.change_save_set_async(conn, SetMode::Insert).await?;
+    may_not_exist(win.change_save_set_async(conn, SetMode::Insert).await)?;
 
-    win.reparent_async(conn, frame, 0, 0).await?;
+    may_not_exist(win.reparent_async(conn, frame, 0, 0).await)?;
 
     Ok(dbg!(FramedWindow { frame, win }))
 }
