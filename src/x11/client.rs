@@ -534,6 +534,17 @@ impl XcrabWindowManager {
 
         Ok(())
     }
+
+    pub async fn remove_focused_client<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+    ) -> Result<()> {
+        if let Some(focused) = self.focused {
+            self.remove_client(conn, focused).await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub fn may_not_exist(res: breadx::Result) -> breadx::Result {
