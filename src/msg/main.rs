@@ -7,13 +7,15 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let msg = std::env::args().skip(1).collect::<Vec<String>>().join(" ");
+
     let conf = config::load_file()?;
 
     let path = conf.msg.expect("xcrab-msg not configured!").socket_path;
 
     let mut stream = UnixStream::connect(path).await?;
 
-    stream.write_all("hello world".as_bytes()).await?;
+    stream.write_all(msg.as_bytes()).await?;
 
     Ok(())
 }
