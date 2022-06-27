@@ -13,7 +13,7 @@ pub struct XcrabConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct XcrabMsgConfig {
-    socket_path: PathBuf,
+    pub socket_path: PathBuf,
 }
 
 const DEFAULT_BORDER_COLOR: u32 = 0xff_00_00; // red

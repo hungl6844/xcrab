@@ -13,6 +13,7 @@ use breadx::{
 use lazy_static::lazy_static;
 
 mod config;
+mod msg_listener;
 mod x11;
 
 use x11::client::{may_not_exist, XcrabWindowManager};
@@ -105,6 +106,13 @@ async fn main() -> Result<()> {
     }
 
     conn.ungrab_server_async().await?;
+
+    if let Some(ref msg) = CONFIG.msg {
+        tokio::spawn(async move {
+            msg_listener::listener_task(&msg.socket_path).await?;
+            Ok::<(), XcrabError>(())
+        });
+    }
 
     loop {
         let ev = conn.wait_for_event_async().await?;
