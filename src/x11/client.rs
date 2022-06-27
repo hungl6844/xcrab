@@ -368,7 +368,7 @@ impl XcrabWindowManager {
     }
 }
 
-fn may_not_exist(res: breadx::Result) -> breadx::Result {
+pub fn may_not_exist(res: breadx::Result) -> breadx::Result {
     match res {
         // if its a `Window` error, that means it happened because
         // a window failed to exist, and we want to allow those
@@ -485,5 +485,5 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
 
     may_not_exist(win.reparent_async(conn, frame, 0, 0).await)?;
 
-    Ok(dbg!(FramedWindow { frame, win }))
+    Ok(FramedWindow { frame, win })
 }

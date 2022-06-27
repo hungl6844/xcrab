@@ -14,7 +14,7 @@ use lazy_static::lazy_static;
 mod config;
 mod x11;
 
-use x11::client::XcrabWindowManager;
+use x11::client::{may_not_exist, XcrabWindowManager};
 
 #[non_exhaustive]
 pub enum XcrabError {
@@ -120,7 +120,9 @@ async fn main() -> Result<()> {
                     width: Some(ev.width.into()),
                     height: Some(ev.height.into()),
                     border_width: Some(ev.border_width.into()),
-                    sibling: Some(ev.sibling),
+                    // without this, it will error when a window tries to set a sibling that is
+                    // not actually a sibling? idk, all i know is that without it, xterm crashes
+                    sibling: None,
                     stack_mode: Some(ev.stack_mode),
                 };
 
@@ -133,7 +135,8 @@ async fn main() -> Result<()> {
                 }
 
                 // forward the request
-                ev.window.configure_async(&mut conn, params).await?;
+                // by the time we get here someone may have already deleted their window (xterm, im looking at you!)
+                may_not_exist(ev.window.configure_async(&mut conn, params).await)?;
             }
             Event::UnmapNotify(ev) => {
                 if ev.event != root && manager.has_client(ev.window) {
