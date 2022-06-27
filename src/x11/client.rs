@@ -460,17 +460,17 @@ impl XcrabWindowManager {
 
             match &mut rect.contents {
                 RectangleContents::Pane(pane) => {
-                    // TODO: gap
+                    if !pane.children.is_empty() {
+                        let new_dimensions = dimensions.split(pane.directionality, pane.children.len());
 
-                    let new_dimensions = dimensions.split(pane.directionality, pane.children.len());
-
-                    for (key, dimensions) in pane
-                        .children
-                        .clone()
-                        .into_iter()
-                        .zip(new_dimensions.into_iter())
-                    {
-                        self.update_rectangle(conn, key, Some(dimensions)).await?;
+                        for (key, dimensions) in pane
+                            .children
+                            .clone()
+                            .into_iter()
+                            .zip(new_dimensions.into_iter())
+                        {
+                            self.update_rectangle(conn, key, Some(dimensions)).await?;
+                        }
                     }
                 }
                 RectangleContents::Client(client) => {
@@ -525,10 +525,12 @@ impl XcrabWindowManager {
         self.rects.remove(client_key);
 
         if self.focused.unwrap() == win {
-            self.focused = Some(*self.clients.keys().next().unwrap());
+            self.focused = self.clients.keys().next().copied();
         }
 
         self.update_rectangle(conn, parent_key, None).await?;
+
+        // TODO: remove panes if they have 1 or 0 children
 
         Ok(())
     }
