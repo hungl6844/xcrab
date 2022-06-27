@@ -1,13 +1,19 @@
-#![allow(dead_code)]
+#![allow(dead_code, clippy::module_name_repetitions)]
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use std::path::PathBuf;
 
-#[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct XcrabConfig {
     border_color: Option<u32>,
     border_size: Option<u16>,
     gap_size: Option<u16>,
+    pub msg: Option<XcrabMsgConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct XcrabMsgConfig {
+    socket_path: PathBuf,
 }
 
 const DEFAULT_BORDER_COLOR: u32 = 0xff_00_00; // red
@@ -20,6 +26,7 @@ impl Default for XcrabConfig {
             border_color: Some(DEFAULT_BORDER_COLOR),
             border_size: Some(DEFAULT_BORDER_SIZE),
             gap_size: Some(DEFAULT_GAP_SIZE),
+            msg: None, // TODO: use a default socket path
         }
     }
 }
