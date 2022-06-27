@@ -15,4 +15,4 @@ slotmap = "1.0.6"
 name = "xcrab-msg"
 path = "src/msg/main.rs"
 
-[features]
+# You just lost the game
