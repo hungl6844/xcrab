@@ -1,5 +1,6 @@
 #!/bin/sh
 
+xsetroot -solid \#555555 &
 xclock &
 xterm &
 
