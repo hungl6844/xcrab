@@ -93,6 +93,36 @@ struct Rectangle {
     contents: RectangleContents,
 }
 
+impl Rectangle {
+    fn unwrap_pane(&self) -> &Pane {
+        match &self.contents {
+            RectangleContents::Pane(pane) => pane,
+            RectangleContents::Client(_) => unreachable!(),
+        }
+    }
+
+    fn unwrap_client(&self) -> &Client {
+        match &self.contents {
+            RectangleContents::Pane(_) => unreachable!(),
+            RectangleContents::Client(client) => client,
+        }
+    }
+
+    fn unwrap_pane_mut(&mut self) -> &mut Pane {
+        match &mut self.contents {
+            RectangleContents::Pane(pane) => pane,
+            RectangleContents::Client(_) => unreachable!(),
+        }
+    }
+
+    fn unwrap_client_mut(&mut self) -> &mut Client {
+        match &mut self.contents {
+            RectangleContents::Pane(_) => unreachable!(),
+            RectangleContents::Client(client) => client,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum RectangleContents {
     Pane(Pane),
@@ -117,174 +147,286 @@ impl XcrabWindowManager {
         XcrabWindowManager::default()
     }
 
+    /// Given the `rect_key` from a `parent -> rect` relationship, makes A
+    /// `parent -> new_pane -> rect` relationship, then returns `new_pane_key`
+    fn insert_pane_above(
+        &mut self,
+        rect_key: XcrabKey,
+        directionality: Directionality,
+    ) -> Option<XcrabKey> {
+        let rect = self.rects.get(rect_key)?;
+        let rect_dimensions = rect.cached_dimensions;
+        let parent_key = rect.parent;
+
+        let new_pane = Rectangle {
+            parent: parent_key,
+            cached_dimensions: rect_dimensions,
+            contents: RectangleContents::Pane(Pane {
+                children: vec![rect_key],
+                directionality,
+            }),
+        };
+
+        let new_pane_key = if parent_key == rect_key {
+            // the given node was the root node
+
+            // this new pane will be the new root, so it becomes its own parent
+            self.rects.insert_with_key(|key| Rectangle {
+                parent: key,
+                ..new_pane
+            })
+        } else {
+            // the given node was not the root node, and thus has a parent
+
+            let new_pane_key = self.rects.insert(new_pane);
+
+            let parent_pane = self.rects.get_mut(parent_key).unwrap().unwrap_pane_mut();
+            let index = parent_pane
+                .children
+                .iter()
+                .copied()
+                .position(|v| v == rect_key)
+                .unwrap();
+            // replace the "parent -> rect" relationship with a "parent -> new_pane" relationship
+            parent_pane.children[index] = new_pane_key;
+
+            new_pane_key
+        };
+
+        let rect = self.rects.get_mut(rect_key).unwrap();
+        rect.parent = new_pane_key;
+
+        Some(new_pane_key)
+    }
+
+    /// Adds a new client.
     pub async fn add_client<Dpy: AsyncDisplay + ?Sized>(
         &mut self,
         conn: &mut Dpy,
         win: Window,
     ) -> Result<()> {
-        self.add_client_direction(conn, win, Direction::Right).await
+        // use rand::prelude::SliceRandom;
+        // let direction = *[
+        //     Direction::Up,
+        //     Direction::Down,
+        //     Direction::Left,
+        //     Direction::Right,
+        // ]
+        // .choose(&mut rand::thread_rng())
+        // .unwrap();
+        self.add_client_direction(conn, win, Direction::Right)
+            .await
     }
 
+    /// Adds a new client in the given direction from the focused window.
     pub async fn add_client_direction<Dpy: AsyncDisplay + ?Sized>(
         &mut self,
         conn: &mut Dpy,
         win: Window,
         direction: Direction,
     ) -> Result<()> {
+        #[allow(clippy::enum_glob_use)]
+        use {Direction::*, Directionality::*};
+
+        let focused = match self.focused {
+            Some(v) => v,
+            None => return self.add_first_client(conn, win).await,
+        };
+
+        // this code path is somewhat difficult to understand, so i added some comments
+
+        // frame the window
         let frame = frame(conn, win).await?;
 
-        if let Some(focused) = self.focused {
-            #[allow(clippy::enum_glob_use)]
-            use {Direction::*, Directionality::*};
+        // the XcrabKey to the focused client
+        let focused_client_key = *self
+            .clients
+            .get(&focused)
+            .ok_or(XcrabError::ClientDoesntExist)?;
 
-            // this code path is somewhat difficult to understand, so i added some comments
+        // the directionality we want to find: if we are tiling Up or Down, we
+        // want a Vertical pane, and for Left or Right we want a Horizontal one.
+        let target_directionality = match direction {
+            Up | Down => Vertical,
+            Left | Right => Horizontal,
+        };
 
-            // the XcrabKey to the focused client
-            let focused_client_key = *self
-                .clients
-                .get(&focused)
-                .ok_or(XcrabError::ClientDoesntExist)?;
+        // this var will be used in the upcoming loop
+        let mut child_key = focused_client_key;
 
-            // the directionality we want to find: if we are tiling Up or Down, we
-            // want a Vertical pane, and for Left or Right we want a Horizontal one.
-            let target_directionality = match direction {
-                Up | Down => Vertical,
-                Left | Right => Horizontal,
-            };
+        // go up the chain (using `Rectangle.parent`) until you find a pane with the correct directionality
+        let parent_key = loop {
+            let parent_key = self.rects.get(child_key).unwrap().parent;
 
-            // this var will be used in the upcoming loop
-            let mut child_key = focused_client_key;
+            if parent_key == child_key {
+                // uh oh, we hit the top, now we will wrap the root client
+                // in a new pane and make this new pane the root
 
-            // go up the chain (using `Rectangle.parent`) until you find a pane with the correct directionality
-            let parent_key = loop {
-                let parent_key = self.rects.get(child_key).unwrap().parent;
-
-                if parent_key == child_key {
-                    // uh oh, we hit the top, time to create a pane
-
-                    child_key = focused_client_key;
-                    let child = self.rects.get(child_key).unwrap();
-                    // parent of the focused client
-                    let parent_key = child.parent;
-
-                    // the new pane
-                    let new_pane = Rectangle {
-                        parent: parent_key,
-                        cached_dimensions: child.cached_dimensions,
-                        contents: RectangleContents::Pane(Pane {
-                            // its child is the focused client
-                            children: vec![child_key],
-                            directionality: target_directionality,
-                        }),
-                    };
-
-                    let new_pane_key = if child_key == parent_key {
-                        self.rects.insert_with_key(|key| Rectangle {
-                            parent: key,
-                            ..new_pane
-                        })
-                    } else {
-                        self.rects.insert(new_pane)
-                    };
-
-                    // create the new_pane -> child relationship
-                    self.rects.get_mut(child_key).unwrap().parent = new_pane_key;
-
-                    let parent = self.rects.get_mut(parent_key).unwrap();
-                    match &mut parent.contents {
-                        RectangleContents::Pane(pane) => {
-                            let index = pane
-                                .children
-                                .iter()
-                                .copied()
-                                .position(|v| v == child_key)
-                                .unwrap();
-                            // remove the parent -> child relation and replace it with parent -> new_pane
-                            pane.children[index] = new_pane_key;
-                        }
-                        // this means that the focused client is the root client
-                        RectangleContents::Client(_) => {}
-                    }
-
-                    break new_pane_key;
-                }
-
-                let parent = self.rects.get(parent_key).unwrap();
-
-                match &parent.contents {
-                    RectangleContents::Pane(pane) => {
-                        if pane.directionality == target_directionality {
-                            // yay! found it
-                            break parent_key;
-                        }
-
-                        // nope, continue
-                        child_key = parent_key;
-                    }
-                    // parents should never be clients, only panes
-                    RectangleContents::Client(_) => unreachable!(),
-                }
-            };
-
-            // `parent_key` now holds the key for the pane with the target
-            // directionality, and `child_key` holds the child key which will
-            // be used to find where to insert our new client
-
-            // the key to the newly created client
-            let new_rect_key = self.rects.insert(Rectangle {
-                parent: parent_key,
-                // this default will be overriden by the `update_rectangle` down below
-                cached_dimensions: Dimensions::default(),
-                contents: RectangleContents::Client(Client { frame }),
-            });
-
-            // the Pane of the Rectangle of `parent_key`
-            let parent = match &mut self.rects.get_mut(parent_key).unwrap().contents {
-                RectangleContents::Pane(pane) => pane,
-                RectangleContents::Client(_) => unreachable!(),
-            };
-
-            // the index which we want to `insert` at, found using `child_key`
-            let mut index = parent
-                .children
-                .iter()
-                .copied()
-                .position(|v| v == child_key)
-                .unwrap();
-
-            if let Down | Right = direction {
-                index += 1;
+                break self
+                    .insert_pane_above(child_key, target_directionality)
+                    .unwrap();
             }
 
-            // insert the new rect
-            parent.children.insert(index, new_rect_key);
+            let parent = self.rects.get(parent_key).unwrap();
 
-            self.clients.insert(win, new_rect_key);
+            if parent.unwrap_pane().directionality == target_directionality {
+                // yay! found it
+                break parent_key;
+            }
 
-            self.focused = Some(win);
+            // nope, continue
+            child_key = parent_key;
+        };
 
-            // update the parent rectangle to also update all the siblings of out new rect
-            self.update_rectangle(conn, parent_key, None).await?;
-        } else {
-            let root_geo = conn.default_root().geometry_immediate_async(conn).await?;
+        // `parent_key` now holds the key for the pane with the target
+        // directionality, and `child_key` holds the child key which will
+        // be used to find where to insert our new client
 
-            let key = self.rects.insert_with_key(|key| Rectangle {
-                parent: key,
-                cached_dimensions: Dimensions {
-                    x: root_geo.x.try_into().unwrap(),
-                    y: root_geo.y.try_into().unwrap(),
-                    width: root_geo.width,
-                    height: root_geo.height,
-                },
-                contents: RectangleContents::Client(Client { frame }),
-            });
+        // the key to the newly created client
+        let new_rect_key = self.rects.insert(Rectangle {
+            parent: parent_key,
+            // this default will be overriden by the `update_rectangle` down below
+            cached_dimensions: Dimensions::default(),
+            contents: RectangleContents::Client(Client { frame }),
+        });
 
-            self.clients.insert(win, key);
+        // the Pane of the Rectangle of `parent_key`
+        let parent_pane = self.rects.get_mut(parent_key).unwrap().unwrap_pane_mut();
 
-            self.focused = Some(win);
+        // the index which we want to `insert` at, found using `child_key`
+        let mut index = parent_pane
+            .children
+            .iter()
+            .copied()
+            .position(|v| v == child_key)
+            .unwrap();
 
-            self.update_rectangle(conn, key, None).await?;
+        if let Down | Right = direction {
+            index += 1;
         }
+
+        // insert the new rect
+        parent_pane.children.insert(index, new_rect_key);
+
+        self.clients.insert(win, new_rect_key);
+
+        self.focused = Some(win);
+
+        // update the parent rectangle to also update all the siblings of our new rect
+        self.update_rectangle(conn, parent_key, None).await?;
+
+        frame.map(conn).await?;
+
+        Ok(())
+    }
+
+    /// Adds a new client in the given direction directly adjacent to the focused window, creating a new pane if needed.
+    pub async fn add_client_direction_immediate<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+        win: Window,
+        direction: Direction,
+    ) -> Result<()> {
+        #[allow(clippy::enum_glob_use)]
+        use {Direction::*, Directionality::*};
+
+        let focused = match self.focused {
+            Some(v) => v,
+            None => return self.add_first_client(conn, win).await,
+        };
+
+        // frame the window
+        let frame = frame(conn, win).await?;
+
+        // get the focused client
+        let focused_client_key = *self.clients.get(&focused).unwrap();
+        let focused_client = self.rects.get(focused_client_key).unwrap();
+
+        // get the parent of the focused client
+        let mut parent_key = focused_client.parent;
+        let parent_pane_dir = match &self.rects.get(parent_key).unwrap().contents {
+            RectangleContents::Pane(pane) => Some(pane.directionality),
+            RectangleContents::Client(_) => None,
+        };
+
+        // find the target directionality
+        let target_directionality = match direction {
+            Up | Down => Vertical,
+            Left | Right => Horizontal,
+        };
+
+        // if the parent's directionality is wrong...
+        // note: the `None` case is hit if we are the root client
+        if parent_pane_dir.is_none() || parent_pane_dir.unwrap() != target_directionality {
+            // insert a pane above the client with the right directionality
+            parent_key = self
+                .insert_pane_above(focused_client_key, target_directionality)
+                .unwrap();
+        }
+
+        // create the rect
+        let new_rect_key = self.rects.insert(Rectangle {
+            parent: parent_key,
+            // this default will be overriden by the `update_rectangle` down below
+            cached_dimensions: Dimensions::default(),
+            contents: RectangleContents::Client(Client { frame }),
+        });
+
+        // get the parent of the focused client (may have been modified above)
+        let parent_pane = self.rects.get_mut(parent_key).unwrap().unwrap_pane_mut();
+
+        // get the index we want to insert at
+        let mut index = parent_pane
+            .children
+            .iter()
+            .copied()
+            .position(|v| v == focused_client_key)
+            .unwrap();
+
+        if let Down | Right = direction {
+            index += 1;
+        }
+
+        // insert
+        parent_pane.children.insert(index, new_rect_key);
+
+        self.clients.insert(win, new_rect_key);
+
+        self.focused = Some(win);
+        
+        // update
+        self.update_rectangle(conn, parent_key, None).await?;
+
+        frame.map(conn).await?;
+
+        Ok(())
+    }
+
+    async fn add_first_client<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+        win: Window,
+    ) -> Result<()> {
+        let frame = frame(conn, win).await?;
+
+        let root_geo = conn.default_root().geometry_immediate_async(conn).await?;
+
+        let key = self.rects.insert_with_key(|key| Rectangle {
+            parent: key,
+            cached_dimensions: Dimensions {
+                x: root_geo.x.try_into().unwrap(),
+                y: root_geo.y.try_into().unwrap(),
+                width: root_geo.width,
+                height: root_geo.height,
+            },
+            contents: RectangleContents::Client(Client { frame }),
+        });
+
+        self.clients.insert(win, key);
+
+        self.focused = Some(win);
+
+        self.update_rectangle(conn, key, None).await?;
 
         frame.map(conn).await?;
 
@@ -360,22 +502,15 @@ impl XcrabWindowManager {
 
         let client = self.rects.get(client_key).unwrap();
 
-        match client.contents {
-            RectangleContents::Pane(_) => unreachable!(),
-            RectangleContents::Client(client) => {
-                client.frame.unframe(conn).await?;
-            }
-        }
+        client.unwrap_client().frame.unframe(conn).await?;
 
         let parent_key = client.parent;
         let parent = self.rects.get_mut(parent_key).unwrap();
 
-        match &mut parent.contents {
-            RectangleContents::Pane(pane) => {
-                pane.children.retain(|&v| v != client_key);
-            }
-            RectangleContents::Client(_) => unreachable!(),
-        }
+        parent
+            .unwrap_pane_mut()
+            .children
+            .retain(|&v| v != client_key);
 
         self.update_rectangle(conn, parent_key, None).await?;
 

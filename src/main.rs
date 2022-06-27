@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![warn(clippy::pedantic)]
-#![allow(clippy::too_many_lines)]
 
 use std::fmt::{Debug, Display};
 
