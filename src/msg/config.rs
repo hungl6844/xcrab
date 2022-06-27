@@ -10,7 +10,7 @@ pub struct XcrabConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct XcrabMsgConfig {
-    socket_path: PathBuf,
+    pub socket_path: PathBuf,
 }
 
 pub fn load_file() -> Result<XcrabConfig> {
