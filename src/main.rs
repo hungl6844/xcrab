@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
         // starved by x11 events. Probably unnecessary, but better safe than sorry.
         tokio::select! {
             biased;
-            Some(s) = recv.recv() => msg_listener::on_recv(s).await?,
+            Some(s) = recv.recv() => msg_listener::on_recv(s, &mut manager, &mut conn).await?,
             Ok(ev) = conn.wait_for_event_async() => process_event(ev, &mut manager, &mut conn, root).await?,
         }
     }

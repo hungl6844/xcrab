@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::x11::client::XcrabWindowManager;
 use crate::Result;
+use breadx::AsyncDisplay;
 use std::path::Path;
 use tokio::io::AsyncReadExt;
 use tokio::net::UnixListener;
@@ -44,7 +46,14 @@ pub async fn listener_task(socket_path: &Path, sender: UnboundedSender<String>) 
     }
 }
 
-pub async fn on_recv(data: String) -> Result<()> {
-    println!("{}", data);
+pub async fn on_recv<Dpy: AsyncDisplay + ?Sized>(
+    data: String,
+    manager: &mut XcrabWindowManager,
+    conn: &mut Dpy,
+) -> Result<()> {
+    match &*data {
+        "close" => manager.remove_focused_client(conn).await?,
+        _ => println!("{}", data),
+    }
     Ok(())
 }
