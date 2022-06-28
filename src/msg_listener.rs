@@ -17,6 +17,7 @@ use crate::Result;
 use std::path::Path;
 use tokio::io::AsyncReadExt;
 use tokio::net::UnixListener;
+use tokio::sync::mpsc::UnboundedSender;
 
 macro_rules! unwrap_or_continue {
     ($e:expr) => {
@@ -28,7 +29,7 @@ macro_rules! unwrap_or_continue {
 }
 
 // TODO: Accept some sort of handle to perform tasks on the WM
-pub async fn listener_task(socket_path: &Path) -> Result<()> {
+pub async fn listener_task(socket_path: &Path, sender: UnboundedSender<String>) -> Result<()> {
     if socket_path.exists() {
         std::fs::remove_file(socket_path)?;
     }
@@ -39,6 +40,11 @@ pub async fn listener_task(socket_path: &Path) -> Result<()> {
 
         stream.read_to_string(&mut buf).await?;
 
-        println!("{}", buf);
+        let _ = sender.send(buf);
     }
+}
+
+pub async fn on_recv(data: String) -> Result<()> {
+    println!("{}", data);
+    Ok(())
 }

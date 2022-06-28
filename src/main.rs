@@ -18,13 +18,15 @@
 use std::fmt::{Debug, Display};
 
 use breadx::{
-    prelude::{AsyncDisplayXprotoExt, MapState},
+    prelude::{AsyncDisplay, AsyncDisplayXprotoExt, MapState},
     traits::DisplayBase,
     AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters, Event,
-    EventMask,
+    EventMask, Window,
 };
 
 use lazy_static::lazy_static;
+
+use tokio::sync::mpsc::unbounded_channel;
 
 mod config;
 mod msg_listener;
@@ -121,52 +123,65 @@ async fn main() -> Result<()> {
 
     conn.ungrab_server_async().await?;
 
+    let (send, mut recv) = unbounded_channel();
+
     if let Some(ref msg) = CONFIG.msg {
-        tokio::spawn(async move {
-            msg_listener::listener_task(&msg.socket_path).await?;
-            Ok::<(), XcrabError>(())
-        });
+        tokio::spawn(msg_listener::listener_task(&msg.socket_path, send));
     }
 
     loop {
-        let ev = conn.wait_for_event_async().await?;
-
-        match ev {
-            Event::MapRequest(ev) => {
-                manager.add_client(&mut conn, ev.window).await?;
-            }
-            Event::ConfigureRequest(ev) => {
-                // copy from `ev` to `params`
-                let mut params = ConfigureWindowParameters {
-                    x: Some(ev.x.into()),
-                    y: Some(ev.y.into()),
-                    width: Some(ev.width.into()),
-                    height: Some(ev.height.into()),
-                    border_width: Some(ev.border_width.into()),
-                    // without this, it will error when a window tries to set a sibling that is
-                    // not actually a sibling? idk, all i know is that without it, xterm crashes
-                    sibling: None,
-                    stack_mode: Some(ev.stack_mode),
-                };
-
-                // if this is a client, deny changing position or size (we are a tiling wm!)
-                if manager.has_client(ev.window) {
-                    params.x = None;
-                    params.y = None;
-                    params.width = None;
-                    params.height = None;
-                }
-
-                // forward the request
-                // by the time we get here someone may have already deleted their window (xterm, im looking at you!)
-                may_not_exist(ev.window.configure_async(&mut conn, params).await)?;
-            }
-            Event::UnmapNotify(ev) => {
-                if ev.event != root && manager.has_client(ev.window) {
-                    manager.remove_client(&mut conn, ev.window).await?;
-                }
-            }
-            _ => {}
+        // biased mode makes select! poll the channel first in order to keep xcrab-msg from being
+        // starved by x11 events. Probably unnecessary, but better safe than sorry.
+        tokio::select! {
+            biased;
+            Some(s) = recv.recv() => msg_listener::on_recv(s).await?,
+            Ok(ev) = conn.wait_for_event_async() => process_event(ev, &mut manager, &mut conn, root).await?,
         }
     }
+}
+
+async fn process_event<Dpy: AsyncDisplay + ?Sized>(
+    ev: Event,
+    manager: &mut XcrabWindowManager,
+    conn: &mut Dpy,
+    root: Window,
+) -> Result<()> {
+    match ev {
+        Event::MapRequest(ev) => {
+            manager.add_client(conn, ev.window).await?;
+        }
+        Event::ConfigureRequest(ev) => {
+            // copy from `ev` to `params`
+            let mut params = ConfigureWindowParameters {
+                x: Some(ev.x.into()),
+                y: Some(ev.y.into()),
+                width: Some(ev.width.into()),
+                height: Some(ev.height.into()),
+                border_width: Some(ev.border_width.into()),
+                // without this, it will error when a window tries to set a sibling that is
+                // not actually a sibling? idk, all i know is that without it, xterm crashes
+                sibling: None,
+                stack_mode: Some(ev.stack_mode),
+            };
+
+            // if this is a client, deny changing position or size (we are a tiling wm!)
+            if manager.has_client(ev.window) {
+                params.x = None;
+                params.y = None;
+                params.width = None;
+                params.height = None;
+            }
+
+            // forward the request
+            // by the time we get here someone may have already deleted their window (xterm, im looking at you!)
+            may_not_exist(ev.window.configure_async(conn, params).await)?;
+        }
+        Event::UnmapNotify(ev) => {
+            if ev.event != root && manager.has_client(ev.window) {
+                manager.remove_client(conn, ev.window).await?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
