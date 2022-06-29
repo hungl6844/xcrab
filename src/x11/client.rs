@@ -580,11 +580,11 @@ impl XcrabWindowManager {
                 .get(&focused)
                 .ok_or(XcrabError::ClientDoesntExist)?;
 
+            let frame = self.rects.get(client_key).unwrap().unwrap_client().frame;
+
             self.remove_client(conn, focused).await?;
 
-            let client = self.rects.get(client_key).unwrap();
-
-            client.unwrap_client().frame.win.free_async(conn).await?;
+            frame.win.free_async(conn).await?;
 
             Ok(())
         } else {
