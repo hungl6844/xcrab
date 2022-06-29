@@ -173,12 +173,18 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             }
 
             // forward the request
-            // by the time we get here someone may have already deleted their window (xterm, im looking at you!)
+            // by the time we get here someone may have already deleted their window
             may_not_exist(ev.window.configure_async(conn, params).await)?;
         }
         Event::UnmapNotify(ev) => {
             if ev.event != root && manager.has_client(ev.window) {
                 manager.remove_client(conn, ev.window).await?;
+            }
+        }
+        Event::ButtonPress(ev) => {
+            dbg!(&ev);
+            if ev.detail == 1 {
+                manager.set_focus(conn, ev.event).await?;
             }
         }
         _ => {}

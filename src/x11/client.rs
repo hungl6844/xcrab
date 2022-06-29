@@ -13,10 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use breadx::auto::xproto::{InputFocus, SetInputFocusRequest};
 use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
 use breadx::{
-    AsyncDisplay, BreadError, ConfigureWindowParameters, ErrorCode, EventMask, Window,
-    WindowParameters,
+    AsyncDisplay, AsyncDisplayExt, BreadError, ConfigureWindowParameters, ErrorCode, EventMask,
+    Window, WindowParameters, XidType,
 };
 use slotmap::{new_key_type, SlotMap};
 use std::collections::HashMap;
@@ -207,6 +208,51 @@ impl XcrabWindowManager {
         Some(new_pane_key)
     }
 
+    async fn focus_update_map<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+        frame: FramedWindow,
+        parent_key: XcrabKey,
+    ) -> Result<()> {
+        let win = frame.win;
+
+        // we cant `set_focus` here since `win` isnt yet mapped
+        self.focused = Some(win);
+
+        self.update_rectangle(conn, parent_key, None).await?;
+
+        frame.map(conn).await?;
+
+        self.update_focused(conn).await?;
+
+        Ok(())
+    }
+
+    /// Tells x about the currently focused window.
+    pub async fn update_focused<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+    ) -> Result<()> {
+        // unfortunately, i cannot find a method on `conn` to set the focus.
+
+        // https://www.x.org/releases/current/doc/xproto/x11protocol.html#Encoding::Requests
+        let mut req = SetInputFocusRequest {
+            req_type: 42, // constant, specified in x protocol docs.
+            revert_to: InputFocus::None,
+            length: 3,                  // constant, specified in x protocol docs.
+            focus: Window::from_xid(0), // None
+            time: 0,                    // CurrentTime
+        };
+
+        if let Some(focus) = self.focused {
+            req.focus = focus;
+        }
+
+        conn.exchange_request_async(req).await?;
+
+        Ok(())
+    }
+
     /// Adds a new client.
     pub async fn add_client<Dpy: AsyncDisplay + ?Sized>(
         &mut self,
@@ -317,12 +363,7 @@ impl XcrabWindowManager {
 
         self.clients.insert(win, new_rect_key);
 
-        self.focused = Some(win);
-
-        // update the parent rectangle to also update all the siblings of our new rect
-        self.update_rectangle(conn, parent_key, None).await?;
-
-        frame.map(conn).await?;
+        self.focus_update_map(conn, frame, parent_key).await?;
 
         Ok(())
     }
@@ -399,12 +440,7 @@ impl XcrabWindowManager {
 
         self.clients.insert(win, new_rect_key);
 
-        self.focused = Some(win);
-
-        // update
-        self.update_rectangle(conn, parent_key, None).await?;
-
-        frame.map(conn).await?;
+        self.focus_update_map(conn, frame, parent_key).await?;
 
         Ok(())
     }
@@ -432,11 +468,7 @@ impl XcrabWindowManager {
 
         self.clients.insert(win, key);
 
-        self.focused = Some(win);
-
-        self.update_rectangle(conn, key, None).await?;
-
-        frame.map(conn).await?;
+        self.focus_update_map(conn, frame, key).await?;
 
         Ok(())
     }
@@ -461,7 +493,8 @@ impl XcrabWindowManager {
             match &mut rect.contents {
                 RectangleContents::Pane(pane) => {
                     if !pane.children.is_empty() {
-                        let new_dimensions = dimensions.split(pane.directionality, pane.children.len());
+                        let new_dimensions =
+                            dimensions.split(pane.directionality, pane.children.len());
 
                         for (key, dimensions) in pane
                             .children
@@ -525,7 +558,9 @@ impl XcrabWindowManager {
         self.rects.remove(client_key);
 
         if self.focused.unwrap() == win {
-            self.focused = self.clients.keys().next().copied();
+            self.focused = self.clients.keys().copied().next();
+
+            self.update_focused(conn).await?;
         }
 
         self.update_rectangle(conn, parent_key, None).await?;
@@ -544,6 +579,26 @@ impl XcrabWindowManager {
         } else {
             Ok(())
         }
+    }
+
+    pub async fn set_focus<Dpy: AsyncDisplay + ?Sized>(
+        &mut self,
+        conn: &mut Dpy,
+        win: Window,
+    ) -> Result<()> {
+        let client_key = *self
+            .clients
+            .get(&win)
+            .ok_or(XcrabError::ClientDoesntExist)?;
+
+        self.focused = Some(win);
+
+        self.update_focused(conn).await?;
+
+        self.update_rectangle(conn, self.rects.get(client_key).unwrap().parent, None)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -672,6 +727,9 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
             conn,
             EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
         )
+        .await?;
+
+    win.set_event_mask_async(conn, EventMask::BUTTON_PRESS)
         .await?;
 
     may_not_exist(win.change_save_set_async(conn, SetMode::Insert).await)?;
