@@ -570,12 +570,23 @@ impl XcrabWindowManager {
         Ok(())
     }
 
-    pub async fn remove_focused_client<Dpy: AsyncDisplay + ?Sized>(
+    pub async fn destroy_focused_client<Dpy: AsyncDisplay + ?Sized>(
         &mut self,
         conn: &mut Dpy,
     ) -> Result<()> {
         if let Some(focused) = self.focused {
-            self.remove_client(conn, focused).await
+            let client_key = *self
+                .clients
+                .get(&focused)
+                .ok_or(XcrabError::ClientDoesntExist)?;
+
+            self.remove_client(conn, focused).await?;
+
+            let client = self.rects.get(client_key).unwrap();
+
+            client.unwrap_client().frame.win.free_async(conn).await?;
+
+            Ok(())
         } else {
             Ok(())
         }

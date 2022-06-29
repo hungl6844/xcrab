@@ -52,7 +52,7 @@ pub async fn on_recv<Dpy: AsyncDisplay + ?Sized>(
     conn: &mut Dpy,
 ) -> Result<()> {
     match &*data {
-        "close" => manager.remove_focused_client(conn).await?,
+        "close" => manager.destroy_focused_client(conn).await?,
         _ => println!("{}", data),
     }
     Ok(())
