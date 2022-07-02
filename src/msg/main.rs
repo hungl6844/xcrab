@@ -24,7 +24,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 async fn main() -> Result<()> {
     let msg = std::env::args().skip(1).collect::<Vec<String>>().join(" ");
 
-    let conf = config::load_file()?;
+    let conf = config::load_file();
 
     let path = conf.msg.expect("xcrab-msg not configured!").socket_path;
 

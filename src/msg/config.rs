@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -28,12 +27,17 @@ pub struct XcrabMsgConfig {
     pub socket_path: PathBuf,
 }
 
-pub fn load_file() -> Result<XcrabConfig> {
-    let home_dir = std::env::var("HOME")?;
+pub fn load_file() -> XcrabConfig {
+    let home_dir = std::env::var("HOME").expect("Error: $HOME variable was not set");
 
-    let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))?;
+    let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))
+        .expect(&format!(
+            "Error: file {}/.config/xcrab/config.toml was not found",
+            home_dir
+        ));
 
-    let config: XcrabConfig = toml::from_str(&contents)?;
+    let config: XcrabConfig = toml::from_str(&contents)
+        .expect("Error: config file was not parseable. Is it properly formatted?");
 
-    Ok(config)
+    config
 }
