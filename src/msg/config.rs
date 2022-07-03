@@ -31,10 +31,12 @@ pub fn load_file() -> XcrabConfig {
     let home_dir = std::env::var("HOME").expect("Error: $HOME variable was not set");
 
     let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))
-        .expect(&format!(
-            "Error: file {}/.config/xcrab/config.toml was not found",
-            home_dir
-        ));
+        .unwrap_or_else(|_| {
+            panic!(
+                "Error: file {}/.config/xcrab/config.toml was not found",
+                home_dir
+            )
+        });
 
     let config: XcrabConfig = toml::from_str(&contents)
         .expect("Error: config file was not parseable. Is it properly formatted?");

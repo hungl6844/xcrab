@@ -42,7 +42,7 @@ pub async fn listener_task(socket_path: &Path, sender: UnboundedSender<String>) 
 
         stream.read_to_string(&mut buf).await?;
 
-        let _ = sender.send(buf);
+        drop(sender.send(buf)); // go back to ms word clippy
     }
 }
 
