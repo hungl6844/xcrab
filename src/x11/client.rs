@@ -13,16 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use breadx::auto::xproto::{InputFocus, SetInputFocusRequest};
-use breadx::prelude::{AsyncDisplayXprotoExt, SetMode};
 use breadx::{
-    AsyncDisplay, AsyncDisplayExt, BreadError, ConfigureWindowParameters, ErrorCode, EventMask,
-    Window, WindowParameters, XidType,
+    auto::xproto::{ClientMessageEvent, InputFocus, SetInputFocusRequest},
+    client_message_data::ClientMessageData,
+    prelude::{AsByteSequence, AsyncDisplayXprotoExt, PropertyType, SetMode},
+    AsyncDisplay, AsyncDisplayExt, Atom, BreadError, ConfigureWindowParameters, ErrorCode, Event,
+    EventMask, Window, WindowParameters, XidType,
 };
 use slotmap::{new_key_type, SlotMap};
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+use std::{collections::HashMap, future::Future, pin::Pin, slice};
 
 use crate::{Result, XcrabError, CONFIG};
 
@@ -584,7 +583,7 @@ impl XcrabWindowManager {
 
             self.remove_client(conn, focused).await?;
 
-            frame.win.free_async(conn).await?;
+            frame.kill_client(conn).await?;
 
             Ok(())
         } else {
@@ -703,11 +702,98 @@ impl FramedWindow {
 
         self.frame.unmap_async(conn).await?;
 
+        may_not_exist(self.win.unmap_async(conn).await)?;
+
         may_not_exist(self.win.reparent_async(conn, root, 0, 0).await)?;
         // no longer related to us, remove from save set
         may_not_exist(self.win.change_save_set_async(conn, SetMode::Delete).await)?;
 
         self.frame.free_async(conn).await?;
+
+        Ok(())
+    }
+
+    async fn kill_client<Dpy: AsyncDisplay + ?Sized>(self, conn: &mut Dpy) -> Result<()> {
+        struct ListOfAtom(Vec<Atom>);
+
+        impl AsByteSequence for ListOfAtom {
+            fn size(&self) -> usize {
+                unimplemented!()
+            }
+            fn as_bytes(&self, _: &mut [u8]) -> usize {
+                unimplemented!()
+            }
+
+            fn from_bytes(mut bytes: &[u8]) -> Option<(Self, usize)> {
+                let mut index = 0;
+                let mut vec = Vec::new();
+
+                while let Some((atom, index2)) = Atom::from_bytes(bytes) {
+                    vec.push(atom);
+                    index += index2;
+                    bytes = &bytes[index2..];
+                }
+
+                Some((Self(vec), index))
+            }
+        }
+
+        fn as_u8_slice(data: &[u32]) -> &[u8] {
+            // SAFETY: i believe in you to see that this is sound
+            unsafe {
+                slice::from_raw_parts(
+                    data.as_ptr().cast::<u8>(),
+                    data.len().checked_mul(4).unwrap(),
+                )
+            }
+        }
+
+        let wm_protocols = conn
+            .intern_atom_immediate_async("WM_PROTOCOLS", true)
+            .await?;
+        assert!(wm_protocols.xid != 0);
+        let wm_delete_window = conn
+            .intern_atom_immediate_async("WM_DELETE_WINDOW", true)
+            .await?;
+        assert!(wm_delete_window.xid != 0);
+
+        let prop = self
+            .win
+            .get_property_immediate_async::<_, ListOfAtom>(
+                conn,
+                wm_protocols,
+                PropertyType::Atom,
+                false,
+            )
+            .await?;
+        let protocols = prop.unwrap().0; // should never fail to parse
+
+        if protocols.contains(&wm_delete_window) {
+            let data = [wm_delete_window.xid, 0, 0, 0, 0];
+            let data_bytes = as_u8_slice(&data);
+
+            conn.send_event_async(
+                self.win,
+                EventMask::default(),
+                Event::ClientMessage(ClientMessageEvent {
+                    event_type: 33, // constant, check x protocol docs
+                    format: 32,     // tell the x server to byte-flip as if the data was a [u32]
+                    sequence: 0,    // this should be filled in for us by the x server
+                    window: self.win,
+                    ty: wm_protocols,
+                    data: ClientMessageData::from_bytes(data_bytes).unwrap().0, // why the field is private is beyond me
+                }),
+            )
+            .await?;
+
+            // tokio::spawn(async {
+            //     tokio::time::sleep(Duration::from_secs(3)).await;
+
+            //     // TODO: if the client isnt responding, `free_async` the window (maybe show a popup?)
+            // });
+        } else {
+            self.win.free_async(conn).await?;
+        }
 
         Ok(())
     }
@@ -722,7 +808,7 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
     let frame = conn
         .create_simple_window_async(
             root,
-            // theoretically, all of these could be ignoring since they are set later
+            // theoretically, all of these could be ignored since they are set later
             geometry.x,
             geometry.y,
             geometry.width,
