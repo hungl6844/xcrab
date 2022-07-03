@@ -15,6 +15,7 @@
 
 #![allow(dead_code, clippy::module_name_repetitions)]
 
+use crate::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -46,7 +47,16 @@ impl Default for XcrabConfig {
             border_size: Some(DEFAULT_BORDER_SIZE),
             gap_size: Some(DEFAULT_GAP_SIZE),
             outer_gap_size: None,
-            msg: None, // TODO: use a default socket path
+            msg: Some(XcrabMsgConfig::default()),
+        }
+    }
+}
+
+impl Default for XcrabMsgConfig {
+    fn default() -> Self {
+        let home_dir = get_home().expect("Error: $HOME variable not set");
+        Self {
+            socket_path: format!("{}/.config/xcrab/msg.sock", home_dir).into(),
         }
     }
 }
@@ -73,12 +83,16 @@ impl XcrabConfig {
     }
 }
 
-pub fn load_file() -> Result<XcrabConfig, crate::XcrabError> {
-    let home_dir = std::env::var("HOME")?;
+pub fn load_file() -> Result<XcrabConfig> {
+    let home_dir = get_home()?;
 
     let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))?;
 
     let config: XcrabConfig = toml::from_str(&contents)?;
 
     Ok(config)
+}
+
+fn get_home() -> Result<String> {
+    Ok(std::env::var("HOME")?)
 }

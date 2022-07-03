@@ -16,6 +16,7 @@
 #![warn(clippy::pedantic)]
 
 use std::fmt::{Debug, Display};
+use std::ops::Deref;
 
 use breadx::{
     prelude::{AsyncDisplay, AsyncDisplayXprotoExt, MapState},
@@ -125,9 +126,10 @@ async fn main() -> Result<()> {
 
     let (send, mut recv) = unbounded_channel();
 
-    if let Some(ref msg) = CONFIG.msg {
-        tokio::spawn(msg_listener::listener_task(&msg.socket_path, send));
-    }
+    tokio::spawn(msg_listener::listener_task(
+        CONFIG.msg.clone().unwrap_or_default().socket_path,
+        send,
+    ));
 
     loop {
         // biased mode makes select! poll the channel first in order to keep xcrab-msg from being

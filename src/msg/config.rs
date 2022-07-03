@@ -13,13 +13,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 // Dummy struct for deserializing the message config - we're using the same file for both binaries
 pub struct XcrabConfig {
-    pub msg: Option<XcrabMsgConfig>,
+    pub msg: XcrabMsgConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -27,19 +28,28 @@ pub struct XcrabMsgConfig {
     pub socket_path: PathBuf,
 }
 
+impl Default for XcrabMsgConfig {
+    fn default() -> Self {
+        Self {
+            socket_path: format!("{}/.config/xcrab/msg.sock", get_home()).into(),
+        }
+    }
+}
+
+fn load_file_inner() -> Result<XcrabConfig> {
+    let home_dir = get_home();
+
+    let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))?;
+
+    let config: XcrabConfig = toml::from_str(&contents)?;
+
+    Ok(config)
+}
+
 pub fn load_file() -> XcrabConfig {
-    let home_dir = std::env::var("HOME").expect("Error: $HOME variable was not set");
+    load_file_inner().unwrap_or_default()
+}
 
-    let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))
-        .unwrap_or_else(|_| {
-            panic!(
-                "Error: file {}/.config/xcrab/config.toml was not found",
-                home_dir
-            )
-        });
-
-    let config: XcrabConfig = toml::from_str(&contents)
-        .expect("Error: config file was not parseable. Is it properly formatted?");
-
-    config
+fn get_home() -> String {
+    std::env::var("HOME").expect("Error: $HOME variable was not set")
 }

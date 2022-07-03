@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
 
     let conf = config::load_file();
 
-    let path = conf.msg.expect("xcrab-msg not configured!").socket_path;
+    let path = conf.msg.socket_path;
 
     let mut stream = UnixStream::connect(path).await?;
 

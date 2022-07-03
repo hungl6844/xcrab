@@ -31,7 +31,11 @@ macro_rules! unwrap_or_continue {
 }
 
 // TODO: Accept some sort of handle to perform tasks on the WM
-pub async fn listener_task(socket_path: &Path, sender: UnboundedSender<String>) -> Result<()> {
+pub async fn listener_task<P: AsRef<Path>>(
+    socket_path: P,
+    sender: UnboundedSender<String>,
+) -> Result<()> {
+    let socket_path = socket_path.as_ref();
     if socket_path.exists() {
         std::fs::remove_file(socket_path)?;
     }
