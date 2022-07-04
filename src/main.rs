@@ -16,13 +16,13 @@
 #![warn(clippy::pedantic)]
 
 use std::fmt::{Debug, Display};
-use std::ops::Deref;
 
 use breadx::{
     prelude::{AsyncDisplay, AsyncDisplayXprotoExt, MapState},
     traits::DisplayBase,
+    keyboard::KeyboardState,
     AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters, Event,
-    EventMask, Window,
+    EventMask, Window
 };
 
 use lazy_static::lazy_static;
@@ -74,7 +74,7 @@ lazy_static! {
 
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+       & match self {
             Self::Bread(be) => Display::fmt(&be, f)?,
             Self::Io(ie) => Display::fmt(&ie, f)?,
             Self::Toml(te) => Display::fmt(&te, f)?,
@@ -104,7 +104,9 @@ async fn main() -> Result<()> {
     // listen for substructure redirects to intercept events like window creation
     root.set_event_mask_async(
         &mut conn,
-        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY | EventMask::KEY_PRESS
+        | EventMask::KEY_RELEASE
+        ,
     )
     .await?;
 
@@ -131,13 +133,20 @@ async fn main() -> Result<()> {
         send,
     ));
 
+    let mut keyboard_state = KeyboardState::new_async(&mut conn).await?;
+
     loop {
         // biased mode makes select! poll the channel first in order to keep xcrab-msg from being
         // starved by x11 events. Probably unnecessary, but better safe than sorry.
         tokio::select! {
             biased;
             Some(s) = recv.recv() => msg_listener::on_recv(s, &mut manager, &mut conn).await?,
-            Ok(ev) = conn.wait_for_event_async() => process_event(ev, &mut manager, &mut conn, root).await?,
+            Ok(ev) = conn.wait_for_event_async() => process_event(ev,
+                &mut manager,
+                &mut conn,
+                root,
+                &mut keyboard_state,
+            ).await?,
         }
     }
 }
@@ -147,6 +156,7 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
     manager: &mut XcrabWindowManager,
     conn: &mut Dpy,
     root: Window,
+    keyboard_state: &mut KeyboardState,
 ) -> Result<()> {
     match ev {
         Event::MapRequest(ev) => {
@@ -187,6 +197,14 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             dbg!(&ev);
             if ev.detail == 1 {
                 manager.set_focus(conn, ev.event).await?;
+            }
+        }
+        Event::KeyPress(ev) => {
+            println!("{:?}", keyboard_state.process_keycode(ev.detail, ev.state).unwrap());
+            if keyboard_state.process_keycode(ev.detail, ev.state).unwrap().as_char().unwrap() == 'C' {
+                if ev.state.control() || ev.state.shift() {
+                    manager.destroy_focused_client(conn);
+                }
             }
         }
         _ => {}
