@@ -628,6 +628,7 @@ pub fn may_not_exist(res: breadx::Result) -> breadx::Result {
 struct FramedWindow {
     frame: Window,
     win: Window,
+    input: Window
 }
 
 impl FramedWindow {
@@ -687,12 +688,27 @@ impl FramedWindow {
                 .await,
         )?;
 
+        self.input
+            .configure_async(
+                conn,
+                ConfigureWindowParameters {
+                    x: props.x,
+                    y: props.y,
+                    width,
+                    height,
+                    border_width: None,
+                    ..Default::default()
+                },
+            )
+            .await?;
+
         Ok(())
     }
 
     async fn map<Dpy: AsyncDisplay + ?Sized>(self, conn: &mut Dpy) -> Result<()> {
         may_not_exist(self.win.map_async(conn).await)?;
         self.frame.map_async(conn).await?;
+        self.input.map_async(conn).await?;
 
         Ok(())
     }
@@ -708,7 +724,10 @@ impl FramedWindow {
         // no longer related to us, remove from save set
         may_not_exist(self.win.change_save_set_async(conn, SetMode::Delete).await)?;
 
+        self.input.unmap_async(conn).await?;
+
         self.frame.free_async(conn).await?;
+        self.input.free_async(conn).await?;
 
         Ok(())
     }
@@ -819,6 +838,20 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
         )
         .await?;
 
+    let input = conn
+        .create_window_async(
+            frame,
+            breadx::WindowClass::InputOnly,
+            None,
+            Some(conn.default_visual_id()),
+            0,
+            0,
+            geometry.width,
+            geometry.height,
+            0,
+            WindowParameters::default())
+        .await?;
+
     frame
         .set_event_mask_async(
             conn,
@@ -833,5 +866,5 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
 
     may_not_exist(win.reparent_async(conn, frame, 0, 0).await)?;
 
-    Ok(FramedWindow { frame, win })
+    Ok(FramedWindow { frame, win, input })
 }

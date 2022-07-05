@@ -201,8 +201,8 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
         }
         Event::KeyPress(ev) => {
             println!("{:?}", keyboard_state.process_keycode(ev.detail, ev.state).unwrap());
-            if keyboard_state.process_keycode(ev.detail, ev.state).unwrap().as_char().unwrap() == 'C' {
-                if ev.state.control() || ev.state.shift() {
+            if keyboard_state.process_keycode(ev.detail, ev.state).unwrap().as_char().unwrap() == 'X' {
+                if ev.state.control() {
                     manager.destroy_focused_client(conn);
                 }
             }
