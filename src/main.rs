@@ -207,15 +207,26 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             }
         }
         Event::KeyPress(mut ev) => {
-            if keyboard_state.process_keycode(ev.detail, ev.state).unwrap() == Key::X
-                && ev.state.control()
+            if let Some(c) = keyboard_state
+                .process_keycode(ev.detail, ev.state)
+                .unwrap()
+                .as_char()
             {
-                manager.destroy_focused_client(conn).await?;
-            } else {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::KEY_PRESS, Event::KeyPress(ev))
-                    .await?;
+                for (&bind, action) in CONFIG.binds.iter() {
+                    if bind.key == c && bind.mods == ev.state {
+                        // TODO: parse action into an enum & match it
+                        if action == "close" {
+                            manager.destroy_focused_client(conn).await?;
+                            return Ok(());
+                        }
+                    }
+                }
             }
+
+            // keybind did not match, forward instead
+            ev.event = focused;
+            conn.send_event_async(focused, EventMask::KEY_PRESS, Event::KeyPress(ev))
+                .await?;
         }
         Event::KeyRelease(mut ev) => {
             if ev.event == focused_frame.input {
