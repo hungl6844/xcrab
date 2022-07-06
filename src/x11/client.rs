@@ -874,7 +874,8 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
             | EventMask::KEY_RELEASE
             | EventMask::ENTER_WINDOW
             | EventMask::LEAVE_WINDOW,
-    );
+    )
+    .await?;
 
     may_not_exist(win.change_save_set_async(conn, SetMode::Insert).await)?;
 

@@ -193,7 +193,7 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
         }
         Event::ButtonPress(ev) => {
             dbg!(&ev);
-            if ev.detail == 1 {
+            if ev.detail == 1 && manager.has_client(ev.event) {
                 manager.set_focus(conn, ev.event).await?;
             }
         }
