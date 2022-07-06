@@ -76,7 +76,12 @@ impl From<String> for XcrabError {
 }
 
 lazy_static! {
-    pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_default();
+    // pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_default();
+    pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_else(|e| {
+        println!("[CONFIG] Error parsing config: {e}");
+        println!("[CONFIG] Falling back to default config");
+        config::XcrabConfig::default()
+    });
 }
 
 impl Display for XcrabError {
