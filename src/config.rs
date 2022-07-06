@@ -16,7 +16,12 @@
 #![allow(dead_code, clippy::module_name_repetitions)]
 
 use crate::Result;
-use serde::Deserialize;
+use breadx::auto::xproto::KeyButMask;
+use serde::{
+    de::{Deserializer, Visitor},
+    Deserialize,
+};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -27,6 +32,8 @@ pub struct XcrabConfig {
     gap_size: Option<u16>,
     outer_gap_size: Option<u16>,
     pub msg: Option<XcrabMsgConfig>,
+    #[serde(default)]
+    pub binds: HashMap<Keybind, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -48,6 +55,7 @@ impl Default for XcrabConfig {
             gap_size: Some(DEFAULT_GAP_SIZE),
             outer_gap_size: None,
             msg: Some(XcrabMsgConfig::default()),
+            binds: HashMap::new(),
         }
     }
 }
@@ -95,4 +103,61 @@ pub fn load_file() -> Result<XcrabConfig> {
 
 fn get_home() -> Result<String> {
     Ok(std::env::var("HOME")?)
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Keybind {
+    pub key: char,
+    pub mods: KeyButMask,
+}
+
+struct KeybindVisitor;
+impl<'de> Visitor<'de> for KeybindVisitor {
+    type Value = Keybind;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a keybind in the form of 'M-x'")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> std::result::Result<Self::Value, E> {
+        let mut mask = KeyButMask::default();
+
+        for part in value.split('-') {
+            if part.len() > 1 {
+                return Err(E::custom("parts may only contain one character"));
+            }
+
+            let c = part
+                .chars()
+                .next()
+                .ok_or_else(|| E::custom("parts must contain at least one character"))?;
+
+            if c.is_ascii_uppercase() {
+                // FIXME: add more as required
+                match c {
+                    'C' => mask.set_control(true),
+                    'S' => mask.set_shift(true),
+                    'A' => mask.set_mod1(true), // alt key
+                    'W' => mask.set_mod4(true), // super key, 'w' for windows because S is taken
+                    _ => return Err(E::custom(format!("no such modifier: {}", c))),
+                };
+            }
+        }
+
+        // ignores extraneous keys
+        let c = value
+            .split('-')
+            .flat_map(str::chars)
+            .find(char::is_ascii_lowercase)
+            .ok_or_else(|| E::custom("must specify one normal key"))?
+            .to_ascii_uppercase();
+
+        Ok(Keybind { key: c, mods: mask })
+    }
+}
+
+impl<'de> Deserialize<'de> for Keybind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        deserializer.deserialize_str(KeybindVisitor)
+    }
 }
