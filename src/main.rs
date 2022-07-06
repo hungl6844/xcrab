@@ -25,8 +25,6 @@ use breadx::{
     EventMask, Window,
 };
 
-use gluten_keyboard::Key;
-
 use lazy_static::lazy_static;
 
 use tokio::sync::mpsc::unbounded_channel;
@@ -212,7 +210,7 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
                 .unwrap()
                 .as_char()
             {
-                for (&bind, action) in CONFIG.binds.iter() {
+                for (&bind, action) in &CONFIG.binds {
                     if bind.key == c && bind.mods == ev.state {
                         // TODO: parse action into an enum & match it
                         if action == "close" {
