@@ -615,11 +615,7 @@ impl XcrabWindowManager {
     }
 
     pub async fn get_focused(&self) -> Result<Window> {
-        if self.focused != None {
-            Ok(self.focused.unwrap())
-        } else {
-            Err(XcrabError::ClientDoesntExist)
-        }
+        self.focused.ok_or(XcrabError::ClientDoesntExist)
     }
 
     pub async fn get_framed_window(&self, window: Window) -> Result<FramedWindow> {
