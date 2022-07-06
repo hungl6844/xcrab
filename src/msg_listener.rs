@@ -61,3 +61,25 @@ pub async fn on_recv<Dpy: AsyncDisplay + ?Sized>(
     }
     Ok(())
 }
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum Action {
+    Close,
+}
+
+impl FromStr for Action {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        use Action::*;
+        let v: Vec<String> = s.split(' ').map(str::to_ascii_lowercase).collect();
+
+        let a = match v[0].as_str() {
+            "close" => Close,
+            _ => return format!("Unknown action: {}", v[0]),
+        };
+
+        Ok(a)
+    }
+}
