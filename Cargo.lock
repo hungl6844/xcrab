@@ -604,6 +604,7 @@ name = "xcrab"
 version = "0.1.0"
 dependencies = [
  "breadx",
+ "gluten-keyboard",
  "lazy_static",
  "serde",
  "slotmap",

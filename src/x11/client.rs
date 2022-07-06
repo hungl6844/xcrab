@@ -613,6 +613,21 @@ impl XcrabWindowManager {
 
         Ok(())
     }
+
+    pub async fn get_focused(&self) -> Result<Window> {
+        if self.focused != None {
+            Ok(self.focused.unwrap())
+        } else {
+            Err(XcrabError::ClientDoesntExist)
+        }
+    }
+
+    pub async fn get_framed_window(&self, window: Window) -> Result<FramedWindow> {
+        let focused_key = self.clients.get(&window).unwrap();
+        let focused = self.rects.get(*focused_key).unwrap();
+        let focused_frame = focused.unwrap_client().frame;
+        Ok(focused_frame)
+    }
 }
 
 pub fn may_not_exist(res: breadx::Result) -> breadx::Result {
@@ -628,10 +643,10 @@ pub fn may_not_exist(res: breadx::Result) -> breadx::Result {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FramedWindow {
-    frame: Window,
-    win: Window,
-    input: Window,
+pub struct FramedWindow {
+    pub frame: Window,
+    pub win: Window,
+    pub input: Window,
 }
 
 impl FramedWindow {
@@ -729,8 +744,9 @@ impl FramedWindow {
 
         self.input.unmap_async(conn).await?;
 
-        self.frame.free_async(conn).await?;
         self.input.free_async(conn).await?;
+
+        self.frame.free_async(conn).await?;
 
         Ok(())
     }
@@ -866,16 +882,17 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
     win.set_event_mask_async(conn, EventMask::BUTTON_PRESS)
         .await?;
 
-    input.set_event_mask_async(
-        conn,
-        EventMask::BUTTON_PRESS
-            | EventMask::BUTTON_RELEASE
-            | EventMask::KEY_PRESS
-            | EventMask::KEY_RELEASE
-            | EventMask::ENTER_WINDOW
-            | EventMask::LEAVE_WINDOW,
-    )
-    .await?;
+    input
+        .set_event_mask_async(
+            conn,
+            EventMask::BUTTON_PRESS
+                | EventMask::BUTTON_RELEASE
+                | EventMask::KEY_PRESS
+                | EventMask::KEY_RELEASE
+                | EventMask::ENTER_WINDOW
+                | EventMask::LEAVE_WINDOW,
+        )
+        .await?;
 
     may_not_exist(win.change_save_set_async(conn, SetMode::Insert).await)?;
 

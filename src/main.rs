@@ -25,6 +25,8 @@ use breadx::{
     EventMask, Window,
 };
 
+use gluten_keyboard::Key;
+
 use lazy_static::lazy_static;
 
 use tokio::sync::mpsc::unbounded_channel;
@@ -156,6 +158,9 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
     root: Window,
     keyboard_state: &mut KeyboardState,
 ) -> Result<()> {
+    let focused = manager.get_focused().await?;
+    let focused_frame: x11::client::FramedWindow = manager.get_framed_window(focused).await?;
+
     match ev {
         Event::MapRequest(ev) => {
             manager.add_client(conn, ev.window).await?;
@@ -191,28 +196,56 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
                 manager.remove_client(conn, ev.window).await?;
             }
         }
-        Event::ButtonPress(ev) => {
-            dbg!(&ev);
+        Event::ButtonPress(mut ev) => {
             if ev.detail == 1 && manager.has_client(ev.event) {
                 manager.set_focus(conn, ev.event).await?;
             }
+            if ev.event == focused_frame.input {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::BUTTON_PRESS, Event::ButtonPress(ev))
+                    .await?;
+            }
         }
-        Event::KeyPress(ev) => {
-            println!(
-                "{:?}",
-                keyboard_state.process_keycode(ev.detail, ev.state).unwrap()
-            );
-            if keyboard_state
-                .process_keycode(ev.detail, ev.state)
-                .unwrap()
-                .as_char()
-                .unwrap()
-                == 'X'
+        Event::KeyPress(mut ev) => {
+            if keyboard_state.process_keycode(ev.detail, ev.state).unwrap() == Key::X
                 && ev.state.control()
             {
                 manager.destroy_focused_client(conn).await?;
+            } else {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::KEY_PRESS, Event::KeyPress(ev))
+                    .await?;
             }
         }
+        Event::KeyRelease(mut ev) => {
+            if ev.event == focused_frame.input {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::KEY_RELEASE, Event::KeyRelease(ev))
+                    .await?;
+            }
+        }
+        Event::ButtonRelease(mut ev) => {
+            if ev.event == focused_frame.input {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::BUTTON_RELEASE, Event::ButtonRelease(ev))
+                    .await?;
+            }
+        }
+        Event::EnterNotify(mut ev) => {
+            if ev.event == focused_frame.input {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::ENTER_WINDOW, Event::EnterNotify(ev))
+                    .await?;
+            }
+        }
+        Event::LeaveNotify(mut ev) => {
+            if ev.event == focused_frame.input {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::LEAVE_WINDOW, Event::LeaveNotify(ev))
+                    .await?;
+            }
+        }
+
         _ => {}
     }
     Ok(())
