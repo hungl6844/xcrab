@@ -244,7 +244,10 @@ impl XcrabWindowManager {
         };
 
         if let Some(focus) = self.focused {
-            req.focus = focus;
+            let focused_key = self.clients.get(&focus).unwrap();
+            let focused = self.rects.get(*focused_key).unwrap();
+            let focused_frame = focused.unwrap_client().frame;
+            req.focus = focused_frame.input;
         }
 
         conn.exchange_request_async(req).await?;
@@ -628,7 +631,7 @@ pub fn may_not_exist(res: breadx::Result) -> breadx::Result {
 struct FramedWindow {
     frame: Window,
     win: Window,
-    input: Window
+    input: Window,
 }
 
 impl FramedWindow {
@@ -692,8 +695,8 @@ impl FramedWindow {
             .configure_async(
                 conn,
                 ConfigureWindowParameters {
-                    x: props.x,
-                    y: props.y,
+                    x: Some(0),
+                    y: Some(0),
                     width,
                     height,
                     border_width: None,
@@ -849,7 +852,8 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
             geometry.width,
             geometry.height,
             0,
-            WindowParameters::default())
+            WindowParameters::default(),
+        )
         .await?;
 
     frame
@@ -861,6 +865,16 @@ async fn frame<Dpy: AsyncDisplay + ?Sized>(conn: &mut Dpy, win: Window) -> Resul
 
     win.set_event_mask_async(conn, EventMask::BUTTON_PRESS)
         .await?;
+
+    input.set_event_mask_async(
+        conn,
+        EventMask::BUTTON_PRESS
+            | EventMask::BUTTON_RELEASE
+            | EventMask::KEY_PRESS
+            | EventMask::KEY_RELEASE
+            | EventMask::ENTER_WINDOW
+            | EventMask::LEAVE_WINDOW,
+    );
 
     may_not_exist(win.change_save_set_async(conn, SetMode::Insert).await)?;
 

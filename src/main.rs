@@ -18,11 +18,11 @@
 use std::fmt::{Debug, Display};
 
 use breadx::{
+    keyboard::KeyboardState,
     prelude::{AsyncDisplay, AsyncDisplayXprotoExt, MapState},
     traits::DisplayBase,
-    keyboard::KeyboardState,
     AsyncDisplayConnection, AsyncDisplayExt, BreadError, ConfigureWindowParameters, Event,
-    EventMask, Window
+    EventMask, Window,
 };
 
 use lazy_static::lazy_static;
@@ -74,13 +74,13 @@ lazy_static! {
 
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-       & match self {
+        match self {
             Self::Bread(be) => Display::fmt(&be, f)?,
             Self::Io(ie) => Display::fmt(&ie, f)?,
             Self::Toml(te) => Display::fmt(&te, f)?,
             Self::Var(ve) => Display::fmt(&ve, f)?,
             Self::ClientDoesntExist => Display::fmt("client didn't exist", f)?,
-        };
+        }
 
         Ok(())
     }
@@ -104,9 +104,7 @@ async fn main() -> Result<()> {
     // listen for substructure redirects to intercept events like window creation
     root.set_event_mask_async(
         &mut conn,
-        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY | EventMask::KEY_PRESS
-        | EventMask::KEY_RELEASE
-        ,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
     )
     .await?;
 
@@ -200,11 +198,19 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             }
         }
         Event::KeyPress(ev) => {
-            println!("{:?}", keyboard_state.process_keycode(ev.detail, ev.state).unwrap());
-            if keyboard_state.process_keycode(ev.detail, ev.state).unwrap().as_char().unwrap() == 'X' {
-                if ev.state.control() {
-                    manager.destroy_focused_client(conn);
-                }
+            println!(
+                "{:?}",
+                keyboard_state.process_keycode(ev.detail, ev.state).unwrap()
+            );
+            if keyboard_state
+                .process_keycode(ev.detail, ev.state)
+                .unwrap()
+                .as_char()
+                .unwrap()
+                == 'X'
+                && ev.state.control()
+            {
+                manager.destroy_focused_client(conn).await?;
             }
         }
         _ => {}
