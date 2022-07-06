@@ -15,6 +15,7 @@
 
 #![allow(dead_code, clippy::module_name_repetitions)]
 
+use crate::msg_listener::Action;
 use crate::Result;
 use breadx::auto::xproto::KeyButMask;
 use serde::{
@@ -32,8 +33,9 @@ pub struct XcrabConfig {
     gap_size: Option<u16>,
     outer_gap_size: Option<u16>,
     pub msg: Option<XcrabMsgConfig>,
+    #[allow(clippy::zero_sized_map_values)] // TODO: Action will be expanded in the future
     #[serde(default)]
-    pub binds: HashMap<Keybind, String>,
+    pub binds: HashMap<Keybind, Action>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -103,6 +105,25 @@ pub fn load_file() -> Result<XcrabConfig> {
 
 fn get_home() -> Result<String> {
     Ok(std::env::var("HOME")?)
+}
+
+struct ActionVisitor;
+impl<'de> Visitor<'de> for ActionVisitor {
+    type Value = Action;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a valid WM action")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> std::result::Result<Self::Value, E> {
+        value.parse().map_err(|s| E::custom(s))
+    }
+}
+
+impl<'de> Deserialize<'de> for Action {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        deserializer.deserialize_str(ActionVisitor)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]

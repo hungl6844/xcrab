@@ -41,6 +41,7 @@ pub enum XcrabError {
     Io(std::io::Error),
     Toml(toml::de::Error),
     Var(std::env::VarError),
+    FromStr(String),
     ClientDoesntExist,
 }
 
@@ -68,6 +69,12 @@ impl From<std::env::VarError> for XcrabError {
     }
 }
 
+impl From<String> for XcrabError {
+    fn from(v: String) -> Self {
+        Self::FromStr(v)
+    }
+}
+
 lazy_static! {
     pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_default();
 }
@@ -75,10 +82,11 @@ lazy_static! {
 impl Display for XcrabError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Bread(be) => Display::fmt(&be, f)?,
-            Self::Io(ie) => Display::fmt(&ie, f)?,
-            Self::Toml(te) => Display::fmt(&te, f)?,
-            Self::Var(ve) => Display::fmt(&ve, f)?,
+            Self::Bread(be) => Display::fmt(be, f)?,
+            Self::Io(ie) => Display::fmt(ie, f)?,
+            Self::Toml(te) => Display::fmt(te, f)?,
+            Self::Var(ve) => Display::fmt(ve, f)?,
+            Self::FromStr(fe) => Display::fmt(fe, f)?,
             Self::ClientDoesntExist => Display::fmt("client didn't exist", f)?,
         }
 
@@ -212,11 +220,7 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             {
                 for (&bind, action) in &CONFIG.binds {
                     if bind.key == c && bind.mods == ev.state {
-                        // TODO: parse action into an enum & match it
-                        if action == "close" {
-                            manager.destroy_focused_client(conn).await?;
-                            return Ok(());
-                        }
+                        action.eval(manager, conn).await?;
                     }
                 }
             }

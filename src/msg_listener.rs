@@ -55,10 +55,9 @@ pub async fn on_recv<Dpy: AsyncDisplay + ?Sized>(
     manager: &mut XcrabWindowManager,
     conn: &mut Dpy,
 ) -> Result<()> {
-    match &*data {
-        "close" => manager.destroy_focused_client(conn).await?,
-        _ => println!("{}", data),
-    }
+    let a: Action = data.parse()?;
+    a.eval(manager, conn).await?;
+
     Ok(())
 }
 
@@ -68,18 +67,34 @@ pub enum Action {
     Close,
 }
 
-impl FromStr for Action {
+impl std::str::FromStr for Action {
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        #[allow(clippy::enum_glob_use)]
         use Action::*;
         let v: Vec<String> = s.split(' ').map(str::to_ascii_lowercase).collect();
 
         let a = match v[0].as_str() {
             "close" => Close,
-            _ => return format!("Unknown action: {}", v[0]),
+            _ => return Err(format!("Unknown action: {}", v[0])),
         };
 
         Ok(a)
+    }
+}
+
+impl Action {
+    pub async fn eval<Dpy: AsyncDisplay + ?Sized>(
+        &self,
+        manager: &mut XcrabWindowManager,
+        conn: &mut Dpy,
+    ) -> Result<()> {
+        #[allow(clippy::enum_glob_use)]
+        use Action::*;
+        match self {
+            Close => manager.destroy_focused_client(conn).await?,
+        }
+        Ok(())
     }
 }
