@@ -17,12 +17,14 @@ use crate::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug, Default, Deserialize)]
 // Dummy struct for deserializing the message config - we're using the same file for both binaries
 pub struct XcrabConfig {
     pub msg: XcrabMsgConfig,
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct XcrabMsgConfig {
     pub socket_path: PathBuf,
