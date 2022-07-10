@@ -17,6 +17,7 @@ use crate::x11::client::XcrabWindowManager;
 use crate::Result;
 use breadx::AsyncDisplay;
 use std::path::Path;
+use std::str::FromStr;
 use tokio::io::AsyncReadExt;
 use tokio::net::UnixListener;
 use tokio::sync::mpsc::UnboundedSender;
@@ -67,20 +68,32 @@ pub enum Action {
     Close,
 }
 
-impl std::str::FromStr for Action {
+impl FromStr for Action {
+    // TODO: why
+    // there are conventions for this you know, like making it `impl Error`!!!
+    // thats why its *not* recommended to use () if there is no meaningful error data!
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         #[allow(clippy::enum_glob_use)]
         use Action::*;
-        let v: Vec<String> = s.split(' ').map(str::to_ascii_lowercase).collect();
 
-        let a = match v[0].as_str() {
-            "close" => Close,
-            _ => return Err(format!("Unknown action: {}", v[0])),
-        };
+        macro_rules! eq_ignore_ascii_case_match {
+            (($scrutinee:expr) { $($s:literal => $v:expr,)+ else => $else:expr $(,)? }) => {
+                $(
+                    if $scrutinee.eq_ignore_ascii_case($s) {
+                        $v
+                    } else
+                )+ {
+                    $else
+                }
+            };
+        }
 
-        Ok(a)
+        eq_ignore_ascii_case_match!((s) {
+            "close" => Ok(Close),
+            else => Err(format!("Unknown action: {}", s)),
+        })
     }
 }
 
@@ -92,9 +105,11 @@ impl Action {
     ) -> Result<()> {
         #[allow(clippy::enum_glob_use)]
         use Action::*;
+
         match self {
             Close => manager.destroy_focused_client(conn).await?,
         }
+
         Ok(())
     }
 }

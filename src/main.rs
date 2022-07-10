@@ -27,7 +27,7 @@ use breadx::{
 
 use lazy_static::lazy_static;
 
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc;
 
 mod config;
 mod msg_listener;
@@ -41,8 +41,8 @@ pub enum XcrabError {
     Io(std::io::Error),
     Toml(toml::de::Error),
     Var(std::env::VarError),
-    FromStr(String),
     ClientDoesntExist,
+    Custom(String),
 }
 
 impl From<BreadError> for XcrabError {
@@ -71,7 +71,7 @@ impl From<std::env::VarError> for XcrabError {
 
 impl From<String> for XcrabError {
     fn from(v: String) -> Self {
-        Self::FromStr(v)
+        Self::Custom(v)
     }
 }
 
@@ -91,7 +91,7 @@ impl Display for XcrabError {
             Self::Io(ie) => Display::fmt(ie, f)?,
             Self::Toml(te) => Display::fmt(te, f)?,
             Self::Var(ve) => Display::fmt(ve, f)?,
-            Self::FromStr(fe) => Display::fmt(fe, f)?,
+            Self::Custom(fe) => Display::fmt(fe, f)?,
             Self::ClientDoesntExist => Display::fmt("client didn't exist", f)?,
         }
 
@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
 
     conn.ungrab_server_async().await?;
 
-    let (send, mut recv) = unbounded_channel();
+    let (send, mut recv) = mpsc::unbounded_channel();
 
     tokio::spawn(msg_listener::listener_task(
         CONFIG.msg.clone().unwrap_or_default().socket_path,

@@ -137,14 +137,12 @@ enum RectangleContents {
     Client(Client),
 }
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 struct Pane {
     children: Vec<XcrabKey>,
     directionality: Directionality,
 }
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, Copy)]
 struct Client {
     frame: FramedWindow,
