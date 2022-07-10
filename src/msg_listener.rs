@@ -69,14 +69,16 @@ pub enum Action {
 }
 
 impl FromStr for Action {
-    // TODO: why
-    // there are conventions for this you know, like making it `impl Error`!!!
-    // thats why its *not* recommended to use () if there is no meaningful error data!
-    type Err = String;
+    type Err = crate::XcrabError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         #[allow(clippy::enum_glob_use)]
         use Action::*;
+        let parts: Vec<String> = s
+            .split(' ')
+            .map(str::to_ascii_lowercase)
+            .filter(|s| !s.is_empty())
+            .collect();
 
         macro_rules! eq_ignore_ascii_case_match {
             (($scrutinee:expr) { $($s:literal => $v:expr,)+ else => $else:expr $(,)? }) => {
@@ -90,9 +92,11 @@ impl FromStr for Action {
             };
         }
 
-        eq_ignore_ascii_case_match!((s) {
+        // TODO: When more actions are added (such as focus etc), they will take arguments. In that
+        // case, they will get passed the rest of `parts`.
+        eq_ignore_ascii_case_match!((parts[0]) {
             "close" => Ok(Close),
-            else => Err(format!("Unknown action: {}", s)),
+            else => Err(format!("Unknown action: {}", s).into()),
         })
     }
 }
