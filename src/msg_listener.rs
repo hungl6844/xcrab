@@ -18,9 +18,9 @@ use crate::Result;
 use breadx::AsyncDisplay;
 use std::path::Path;
 use std::str::FromStr;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 macro_rules! unwrap_or_continue {
     ($e:expr) => {
@@ -35,6 +35,7 @@ macro_rules! unwrap_or_continue {
 pub async fn listener_task<P: AsRef<Path>>(
     socket_path: P,
     sender: UnboundedSender<String>,
+    mut result_recv: UnboundedReceiver<Result<()>>,
 ) -> Result<()> {
     let socket_path = socket_path.as_ref();
     if socket_path.exists() {
@@ -48,6 +49,13 @@ pub async fn listener_task<P: AsRef<Path>>(
         stream.read_to_string(&mut buf).await?;
 
         drop(sender.send(buf)); // go back to ms word clippy
+
+        // we can unwrap here because if the channel is closed then something's not right
+        if let Err(e) = result_recv.recv().await.unwrap() {
+            stream.write_all(format!("{}", e).as_bytes()).await?;
+        } else {
+            stream.write_all(&[]).await?;
+        }
     }
 }
 
@@ -55,9 +63,16 @@ pub async fn on_recv<Dpy: AsyncDisplay + ?Sized>(
     data: String,
     manager: &mut XcrabWindowManager,
     conn: &mut Dpy,
+    result_sender: &UnboundedSender<Result<()>>,
 ) -> Result<()> {
-    let a: Action = data.parse()?;
-    a.eval(manager, conn).await?;
+    let res = { data.parse::<Action>() };
+
+    if let Ok(ref a) = res {
+        a.eval(manager, conn).await?; // Don't send these errors over the channel, because they're
+                                      // xcrab errors, not msg errors
+    }
+
+    drop(result_sender.send(res.map(|_| ())));
 
     Ok(())
 }

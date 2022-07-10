@@ -138,10 +138,12 @@ async fn main() -> Result<()> {
     conn.ungrab_server_async().await?;
 
     let (send, mut recv) = mpsc::unbounded_channel();
+    let (result_send, result_recv) = mpsc::unbounded_channel();
 
     tokio::spawn(msg_listener::listener_task(
         CONFIG.msg.clone().unwrap_or_default().socket_path,
         send,
+        result_recv,
     ));
 
     let mut keyboard_state = KeyboardState::new_async(&mut conn).await?;
@@ -151,7 +153,7 @@ async fn main() -> Result<()> {
         // starved by x11 events. Probably unnecessary, but better safe than sorry.
         tokio::select! {
             biased;
-            Some(s) = recv.recv() => msg_listener::on_recv(s, &mut manager, &mut conn).await?,
+            Some(s) = recv.recv() => msg_listener::on_recv(s, &mut manager, &mut conn, &result_send).await?,
             Ok(ev) = conn.wait_for_event_async() => process_event(ev,
                 &mut manager,
                 &mut conn,

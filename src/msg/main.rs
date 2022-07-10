@@ -17,7 +17,7 @@
 
 mod config;
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -30,9 +30,20 @@ async fn main() -> Result<()> {
 
     let path = conf.msg.socket_path;
 
-    let mut stream = UnixStream::connect(path).await?;
+    let stream = UnixStream::connect(path).await?;
+    let (mut read, mut write) = stream.into_split();
 
-    stream.write_all(msg.as_bytes()).await?;
+    write.write_all(msg.as_bytes()).await?;
+    drop(write); // Shutdown the writer half so that the write actually goes through
+                 // "Don't cross the streams!""
+
+    let mut buf = String::new();
+
+    read.read_to_string(&mut buf).await?;
+
+    if !buf.is_empty() {
+        println!("Error: {}", buf);
+    }
 
     Ok(())
 }
