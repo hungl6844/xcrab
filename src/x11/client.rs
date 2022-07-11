@@ -612,15 +612,15 @@ impl XcrabWindowManager {
         Ok(())
     }
 
-    pub async fn get_focused(&self) -> Result<Window> {
-        self.focused.ok_or(XcrabError::ClientDoesntExist)
+    pub async fn get_focused(&self) -> Option<Window> {
+        self.focused
     }
 
-    pub async fn get_framed_window(&self, window: Window) -> Result<FramedWindow> {
+    pub async fn get_framed_window(&self, window: Window) -> FramedWindow {
         let focused_key = self.clients.get(&window).unwrap();
         let focused = self.rects.get(*focused_key).unwrap();
         let focused_frame = focused.unwrap_client().frame;
-        Ok(focused_frame)
+        focused_frame
     }
 }
 

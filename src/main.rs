@@ -164,6 +164,7 @@ async fn main() -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_lines)] // FIXME: missing help i have no idea how to make this shorter
 async fn process_event<Dpy: AsyncDisplay + ?Sized>(
     ev: Event,
     manager: &mut XcrabWindowManager,
@@ -171,8 +172,19 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
     root: Window,
     keyboard_state: &mut KeyboardState,
 ) -> Result<()> {
-    let focused = manager.get_focused().await?;
-    let focused_frame: x11::client::FramedWindow = manager.get_framed_window(focused).await?;
+    let focused = {
+        // A new scope is required in order to drop the future stored here, and therefore free the
+        // immutable borrow of `manager`
+        let orig = manager
+            .get_focused()
+            .await
+            .map(|w| (w, manager.get_framed_window(w)));
+        if let Some((w, fut)) = orig {
+            Some((w, fut.await))
+        } else {
+            None
+        }
+    };
 
     match ev {
         Event::MapRequest(ev) => {
@@ -213,10 +225,12 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             if ev.detail == 1 && manager.has_client(ev.event) {
                 manager.set_focus(conn, ev.event).await?;
             }
-            if ev.event == focused_frame.input {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::BUTTON_PRESS, Event::ButtonPress(ev))
-                    .await?;
+            if let Some((focused, focused_frame)) = focused {
+                if ev.event == focused_frame.input {
+                    ev.event = focused;
+                    conn.send_event_async(focused, EventMask::BUTTON_PRESS, Event::ButtonPress(ev))
+                        .await?;
+                }
             }
         }
         Event::KeyPress(mut ev) => {
@@ -233,36 +247,50 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             }
 
             // keybind did not match, forward instead
-            ev.event = focused;
-            conn.send_event_async(focused, EventMask::KEY_PRESS, Event::KeyPress(ev))
-                .await?;
+            if let Some((focused, _)) = focused {
+                ev.event = focused;
+                conn.send_event_async(focused, EventMask::KEY_PRESS, Event::KeyPress(ev))
+                    .await?;
+            }
         }
         Event::KeyRelease(mut ev) => {
-            if ev.event == focused_frame.input {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::KEY_RELEASE, Event::KeyRelease(ev))
-                    .await?;
+            if let Some((focused, focused_frame)) = focused {
+                if ev.event == focused_frame.input {
+                    ev.event = focused;
+                    conn.send_event_async(focused, EventMask::KEY_RELEASE, Event::KeyRelease(ev))
+                        .await?;
+                }
             }
         }
         Event::ButtonRelease(mut ev) => {
-            if ev.event == focused_frame.input {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::BUTTON_RELEASE, Event::ButtonRelease(ev))
+            if let Some((focused, focused_frame)) = focused {
+                if ev.event == focused_frame.input {
+                    ev.event = focused;
+                    conn.send_event_async(
+                        focused,
+                        EventMask::BUTTON_RELEASE,
+                        Event::ButtonRelease(ev),
+                    )
                     .await?;
+                }
             }
         }
         Event::EnterNotify(mut ev) => {
-            if ev.event == focused_frame.input {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::ENTER_WINDOW, Event::EnterNotify(ev))
-                    .await?;
+            if let Some((focused, focused_frame)) = focused {
+                if ev.event == focused_frame.input {
+                    ev.event = focused;
+                    conn.send_event_async(focused, EventMask::ENTER_WINDOW, Event::EnterNotify(ev))
+                        .await?;
+                }
             }
         }
         Event::LeaveNotify(mut ev) => {
-            if ev.event == focused_frame.input {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::LEAVE_WINDOW, Event::LeaveNotify(ev))
-                    .await?;
+            if let Some((focused, focused_frame)) = focused {
+                if ev.event == focused_frame.input {
+                    ev.event = focused;
+                    conn.send_event_async(focused, EventMask::LEAVE_WINDOW, Event::LeaveNotify(ev))
+                        .await?;
+                }
             }
         }
 
