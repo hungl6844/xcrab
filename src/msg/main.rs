@@ -17,10 +17,28 @@
 
 mod config;
 
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+struct CustomError(String);
+
+impl Debug for CustomError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(&self.0)
+    }
+}
+
+impl Display for CustomError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for CustomError {}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -42,7 +60,7 @@ async fn main() -> Result<()> {
     read.read_to_string(&mut buf).await?;
 
     if !buf.is_empty() {
-        return Err(buf.into());
+        return Err(CustomError(buf).into());
     }
 
     Ok(())
