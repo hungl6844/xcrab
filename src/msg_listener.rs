@@ -95,6 +95,10 @@ impl FromStr for Action {
             .filter(|s| !s.is_empty())
             .collect();
 
+        if parts.is_empty() {
+            return Err(String::from("No action provided").into());
+        }
+
         macro_rules! eq_ignore_ascii_case_match {
             (($scrutinee:expr) { $($s:literal => $v:expr,)+ else => $else:expr $(,)? }) => {
                 $(
