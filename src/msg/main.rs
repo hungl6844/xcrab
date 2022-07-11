@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
     read.read_to_string(&mut buf).await?;
 
     if !buf.is_empty() {
-        println!("Error: {}", buf);
+        return Err(buf.into());
     }
 
     Ok(())
