@@ -234,14 +234,12 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
             }
         }
         Event::KeyPress(mut ev) => {
-            if let Some(c) = keyboard_state
-                .process_keycode(ev.detail, ev.state)
-                .unwrap()
-                .as_char()
-            {
-                for (&bind, action) in &CONFIG.binds {
-                    if bind.key == c && bind.mods == ev.state {
-                        action.eval(manager, conn).await?;
+            if let Some(k) = keyboard_state.process_keycode(ev.detail, ev.state) {
+                if let Some(c) = k.as_char() {
+                    for (&bind, action) in &CONFIG.binds {
+                        if bind.key == c && bind.mods == ev.state {
+                            action.eval(manager, conn).await?;
+                        }
                     }
                 }
             }
