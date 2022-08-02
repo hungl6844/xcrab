@@ -12,7 +12,6 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use crate::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -40,11 +39,8 @@ impl Default for XcrabMsgConfig {
 
 fn load_file_inner() -> Result<XcrabConfig> {
     let home_dir = get_home();
-
     let contents = std::fs::read_to_string(format!("{}/.config/xcrab/config.toml", home_dir))?;
-
     let config: XcrabConfig = toml::from_str(&contents)?;
-
     Ok(config)
 }
 

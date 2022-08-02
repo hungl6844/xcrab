@@ -18,6 +18,7 @@
 use std::fmt::{Debug, Display};
 
 use breadx::{
+    auto::xproto::{GrabKeyRequest, GrabMode, KeyButMask, Keycode, Keysym, ModMask},
     keyboard::KeyboardState,
     prelude::{AsyncDisplay, AsyncDisplayXprotoExt, MapState},
     traits::DisplayBase,
@@ -27,13 +28,15 @@ use breadx::{
 
 use lazy_static::lazy_static;
 
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
 
 mod config;
 mod msg_listener;
 mod x11;
 
 use x11::client::{may_not_exist, XcrabWindowManager};
+
+use std::collections::HashMap;
 
 #[non_exhaustive]
 pub enum XcrabError {
@@ -76,7 +79,6 @@ impl From<String> for XcrabError {
 }
 
 lazy_static! {
-    // pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_default();
     pub static ref CONFIG: config::XcrabConfig = config::load_file().unwrap_or_else(|e| {
         println!("[CONFIG] Error parsing config: {e}");
         println!("[CONFIG] Falling back to default config");
@@ -91,9 +93,9 @@ impl Display for XcrabError {
             Self::Io(ie) => Display::fmt(ie, f)?,
             Self::Toml(te) => Display::fmt(te, f)?,
             Self::Var(ve) => Display::fmt(ve, f)?,
-            Self::Custom(fe) => Display::fmt(fe, f)?,
             Self::ClientDoesntExist => Display::fmt("client didn't exist", f)?,
-        }
+            Self::Custom(fe) => Display::fmt(fe, f)?,
+        };
 
         Ok(())
     }
@@ -117,7 +119,7 @@ async fn main() -> Result<()> {
     // listen for substructure redirects to intercept events like window creation
     root.set_event_mask_async(
         &mut conn,
-        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY | EventMask::KEY_PRESS,
     )
     .await?;
 
@@ -137,8 +139,68 @@ async fn main() -> Result<()> {
 
     conn.ungrab_server_async().await?;
 
-    let (send, mut recv) = mpsc::unbounded_channel();
-    let (result_send, result_recv) = mpsc::unbounded_channel();
+    let mut mask = ModMask::new(false, false, true, false, false, false, false, false, false);
+    let mut keyboard_state = KeyboardState::new_async(&mut conn).await?;
+    let keymap = x11::client::keymap(&mut keyboard_state);
+    let mut request_key = *keymap.get(&120).ok_or_else(|| {
+        XcrabError::Custom("At least one letter could not be found in the keymap".to_string())
+    })?;
+
+    for &binds in CONFIG.binds.keys() {
+        for keysym in 97..122_u32 {
+            let keycode = keymap.get(&keysym).ok_or_else(|| {
+                XcrabError::Custom(
+                    "At least one letter could not be found in the keymap".to_string(),
+                )
+            })?;
+            let iter_char = keyboard_state
+                .process_keycode(*keycode, KeyButMask::default())
+                .ok_or_else(|| {
+                    XcrabError::Custom(
+                        "The keycode returned from the keymap could not be processed".to_string(),
+                    )
+                })?
+                .as_char()
+                .ok_or_else(|| {
+                    XcrabError::Custom("The processed Key could not be cast as a char".to_string())
+                })?;
+            if iter_char == binds.key {
+                request_key = *keycode;
+                mask.inner = binds.mods.inner;
+            }
+        }
+    }
+
+    mask.set_Two(true);
+
+    conn.exchange_request_async(GrabKeyRequest {
+        req_type: 33,
+        owner_events: false,
+        length: 4,
+        grab_window: root,
+        modifiers: mask,
+        key: request_key,
+        pointer_mode: GrabMode::Async,
+        keyboard_mode: GrabMode::Async,
+    })
+    .await?;
+
+    mask.set_Two(false);
+
+    conn.exchange_request_async(GrabKeyRequest {
+        req_type: 33,
+        owner_events: false,
+        length: 4,
+        grab_window: root,
+        modifiers: mask,
+        key: request_key,
+        pointer_mode: GrabMode::Async,
+        keyboard_mode: GrabMode::Async,
+    })
+    .await?;
+
+    let (send, mut recv) = unbounded_channel();
+    let (result_send, result_recv) = unbounded_channel();
 
     tokio::spawn(msg_listener::listener_task(
         CONFIG.msg.clone().unwrap_or_default().socket_path,
@@ -146,25 +208,18 @@ async fn main() -> Result<()> {
         result_recv,
     ));
 
-    let mut keyboard_state = KeyboardState::new_async(&mut conn).await?;
-
     loop {
         // biased mode makes select! poll the channel first in order to keep xcrab-msg from being
         // starved by x11 events. Probably unnecessary, but better safe than sorry.
         tokio::select! {
             biased;
             Some(s) = recv.recv() => msg_listener::on_recv(s, &mut manager, &mut conn, &result_send).await?,
-            Ok(ev) = conn.wait_for_event_async() => process_event(ev,
-                &mut manager,
-                &mut conn,
-                root,
-                &mut keyboard_state,
-            ).await?,
+            Ok(ev) = conn.wait_for_event_async() => process_event(ev, &mut manager, &mut conn, root, &mut keyboard_state).await?,
         }
     }
 }
 
-#[allow(clippy::too_many_lines)] // FIXME: missing help i have no idea how to make this shorter
+#[allow(clippy::too_many_lines)]
 async fn process_event<Dpy: AsyncDisplay + ?Sized>(
     ev: Event,
     manager: &mut XcrabWindowManager,
@@ -172,20 +227,6 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
     root: Window,
     keyboard_state: &mut KeyboardState,
 ) -> Result<()> {
-    let focused = {
-        // A new scope is required in order to drop the future stored here, and therefore free the
-        // immutable borrow of `manager`
-        let orig = manager
-            .get_focused()
-            .await
-            .map(|w| (w, manager.get_framed_window(w)));
-        if let Some((w, fut)) = orig {
-            Some((w, fut.await))
-        } else {
-            None
-        }
-    };
-
     match ev {
         Event::MapRequest(ev) => {
             manager.add_client(conn, ev.window).await?;
@@ -221,77 +262,22 @@ async fn process_event<Dpy: AsyncDisplay + ?Sized>(
                 manager.remove_client(conn, ev.window).await?;
             }
         }
-        Event::ButtonPress(mut ev) => {
-            if ev.detail == 1 && manager.has_client(ev.event) {
+        Event::ButtonPress(ev) => {
+            if ev.detail == 1 {
                 manager.set_focus(conn, ev.event).await?;
             }
-            if let Some((focused, focused_frame)) = focused {
-                if ev.event == focused_frame.input {
-                    ev.event = focused;
-                    conn.send_event_async(focused, EventMask::BUTTON_PRESS, Event::ButtonPress(ev))
-                        .await?;
-                }
-            }
         }
-        Event::KeyPress(mut ev) => {
+        Event::KeyPress(ev) => {
             if let Some(k) = keyboard_state.process_keycode(ev.detail, ev.state) {
                 if let Some(c) = k.as_char() {
                     for (&bind, action) in &CONFIG.binds {
-                        if bind.key == c && bind.mods == ev.state {
+                        if bind.key == c {
                             action.eval(manager, conn).await?;
                         }
                     }
                 }
             }
-
-            // keybind did not match, forward instead
-            if let Some((focused, _)) = focused {
-                ev.event = focused;
-                conn.send_event_async(focused, EventMask::KEY_PRESS, Event::KeyPress(ev))
-                    .await?;
-            }
         }
-        Event::KeyRelease(mut ev) => {
-            if let Some((focused, focused_frame)) = focused {
-                if ev.event == focused_frame.input {
-                    ev.event = focused;
-                    conn.send_event_async(focused, EventMask::KEY_RELEASE, Event::KeyRelease(ev))
-                        .await?;
-                }
-            }
-        }
-        Event::ButtonRelease(mut ev) => {
-            if let Some((focused, focused_frame)) = focused {
-                if ev.event == focused_frame.input {
-                    ev.event = focused;
-                    conn.send_event_async(
-                        focused,
-                        EventMask::BUTTON_RELEASE,
-                        Event::ButtonRelease(ev),
-                    )
-                    .await?;
-                }
-            }
-        }
-        Event::EnterNotify(mut ev) => {
-            if let Some((focused, focused_frame)) = focused {
-                if ev.event == focused_frame.input {
-                    ev.event = focused;
-                    conn.send_event_async(focused, EventMask::ENTER_WINDOW, Event::EnterNotify(ev))
-                        .await?;
-                }
-            }
-        }
-        Event::LeaveNotify(mut ev) => {
-            if let Some((focused, focused_frame)) = focused {
-                if ev.event == focused_frame.input {
-                    ev.event = focused;
-                    conn.send_event_async(focused, EventMask::LEAVE_WINDOW, Event::LeaveNotify(ev))
-                        .await?;
-                }
-            }
-        }
-
         _ => {}
     }
     Ok(())

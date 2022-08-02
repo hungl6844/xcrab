@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
     let path = conf.msg.socket_path;
 
     let stream = UnixStream::connect(path).await?;
+
     let (mut read, mut write) = stream.into_split();
 
     write.write_all(msg.as_bytes()).await?;
@@ -58,7 +59,6 @@ async fn main() -> Result<()> {
     let mut buf = String::new();
 
     read.read_to_string(&mut buf).await?;
-
     if !buf.is_empty() {
         return Err(CustomError(buf).into());
     }
