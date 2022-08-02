@@ -13,10 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use breadx::{auto::xproto::{ClientMessageEvent, InputFocus, SetInputFocusRequest}, client_message_data::ClientMessageData, prelude::{AsByteSequence, AsyncDisplayXprotoExt, PropertyType, SetMode}, AsyncDisplay, AsyncDisplayExt, Atom, BreadError, ConfigureWindowParameters, ErrorCode, Event, EventMask, Window, WindowParameters, XidType, KeyboardState};
+use breadx::auto::xproto::{KeyButMask, Keycode, Keysym};
+use breadx::{
+    auto::xproto::{ClientMessageEvent, InputFocus, SetInputFocusRequest},
+    client_message_data::ClientMessageData,
+    prelude::{AsByteSequence, AsyncDisplayXprotoExt, PropertyType, SetMode},
+    AsyncDisplay, AsyncDisplayExt, Atom, BreadError, ConfigureWindowParameters, ErrorCode, Event,
+    EventMask, KeyboardState, Window, WindowParameters, XidType,
+};
 use slotmap::{new_key_type, SlotMap};
 use std::{collections::HashMap, future::Future, pin::Pin, slice};
-use breadx::auto::xproto::{KeyButMask, Keycode, Keysym};
 
 use crate::{Result, XcrabError, CONFIG};
 
